@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BK-Moph Notify</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="bg-slate-100 text-slate-800">
+{% if session %}
+<div class="sidebar">
+  <div class="sidebar-brand">BK-Moph Notify</div>
+  {% if menus.dashboard %}<a href="/dashboard">Dashboard</a>{% endif %}
+  {% if menus.users %}<a href="/users">Users</a>{% endif %}
+  {% if menus.queries %}<a href="/queries">Queries</a>{% endif %}
+  {% if menus.templates %}<a href="/templates">Templates</a>{% endif %}
+  {% if menus.send %}<a href="/send">Send</a>{% endif %}
+  {% if menus.audit %}<a href="/audit">Audit</a>{% endif %}
+  <a href="/logout">Logout</a>
+</div>
+<div class="content">
+  {% block body %}{% endblock %}
+</div>
+{% else %}
+  {% block body %}{% endblock %}
+{% endif %}
+</body>
+</html>

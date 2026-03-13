@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>BK-Moph Notify</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="bg-slate-100">
+<div class="min-h-screen flex items-center justify-center">
+  <div class="w-full max-w-md rounded-2xl bg-white shadow-xl p-8">
+    <h1 class="text-2xl font-bold">BK-Moph Notify</h1>
+    {% if error %}<div class="mt-4 card">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" class="mt-6 space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input name="username" placeholder="Username" class="input">
+      <input type="password" name="password" placeholder="Password" class="input">
+      <button type="submit" class="btn">Login</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>
