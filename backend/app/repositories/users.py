@@ -50,5 +50,5 @@ def upsert_provider_user(db:Session, profile:dict, default_role_id:int|None=None
     db.commit()
     db.refresh(user)
 
-    upsert_profile(db, user.id, profile)
+    upsert_profile(db, user.id, profile, changed_by='provider_login')
     return user

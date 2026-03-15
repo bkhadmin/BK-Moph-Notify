@@ -1,6 +1,7 @@
 import json
 from sqlalchemy.orm import Session
 from app.models.provider_profile import ProviderProfile
+from app.repositories.provider_profile_histories import create_history
 
 def _pick(profile:dict, *keys):
     for k in keys:
@@ -15,7 +16,25 @@ def _nested(profile:dict, parent:str, child:str):
         return block.get(child)
     return None
 
-def upsert_profile(db:Session, user_id:int|None, profile:dict):
+def _row_to_dict(row:ProviderProfile):
+    return {
+        "user_id": row.user_id,
+        "account_id": row.account_id,
+        "provider_id": row.provider_id,
+        "hash_cid": row.hash_cid,
+        "title_name": row.title_name,
+        "name_th": row.name_th,
+        "first_name": row.first_name,
+        "last_name": row.last_name,
+        "position_name": row.position_name,
+        "organization_name": row.organization_name,
+        "organization_code": row.organization_code,
+        "license_no": row.license_no,
+        "phone": row.phone,
+        "email": row.email,
+    }
+
+def upsert_profile(db:Session, user_id:int|None, profile:dict, changed_by:str|None='provider_login'):
     account_id = profile.get('account_id')
     provider_id = profile.get('provider_id')
     row = None
@@ -25,9 +44,15 @@ def upsert_profile(db:Session, user_id:int|None, profile:dict):
         row = db.query(ProviderProfile).filter(ProviderProfile.provider_id == provider_id).first()
     if not row and user_id:
         row = db.query(ProviderProfile).filter(ProviderProfile.user_id == user_id).first()
+
+    before_json = None
+    action = 'create'
     if not row:
         row = ProviderProfile()
         db.add(row)
+    else:
+        before_json = _row_to_dict(row)
+        action = 'update'
 
     row.user_id = user_id
     row.account_id = account_id
@@ -46,6 +71,24 @@ def upsert_profile(db:Session, user_id:int|None, profile:dict):
     row.raw_json = json.dumps(profile, ensure_ascii=False)
     db.commit()
     db.refresh(row)
+
+    after_json = _row_to_dict(row)
+    create_history(db, row.id, action, changed_by, before_json, after_json)
+    return row
+
+def update_profile_manual(db:Session, row:ProviderProfile, payload:dict, changed_by:str|None):
+    before_json = _row_to_dict(row)
+    row.name_th = payload.get('name_th')
+    row.position_name = payload.get('position_name')
+    row.organization_name = payload.get('organization_name')
+    row.organization_code = payload.get('organization_code')
+    row.license_no = payload.get('license_no')
+    row.phone = payload.get('phone')
+    row.email = payload.get('email')
+    db.commit()
+    db.refresh(row)
+    after_json = _row_to_dict(row)
+    create_history(db, row.id, 'manual_update', changed_by, before_json, after_json)
     return row
 
 def get_all(db:Session):

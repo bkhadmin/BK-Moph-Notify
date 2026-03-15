@@ -2,21 +2,29 @@
 {% block body %}
 <div class="p-6">
   <h1 class="text-2xl font-bold">Provider Profile Detail</h1>
-  <div class="card mt-6">
-    <div class="item">Name: {{ profile.name_th or "-" }}</div>
+  <form method="post" action="/profiles/{{ profile.id }}" class="card mt-6">
     <div class="item">Provider ID: {{ profile.provider_id or "-" }}</div>
-    <div class="item">Account ID: {{ profile.account_id or "-" }}</div>
-    <div class="item">Hash CID: {{ profile.hash_cid or "-" }}</div>
-    <div class="item">Organization: {{ profile.organization_name or "-" }}</div>
-    <div class="item">Organization Code: {{ profile.organization_code or "-" }}</div>
-    <div class="item">Position: {{ profile.position_name or "-" }}</div>
-    <div class="item">License No: {{ profile.license_no or "-" }}</div>
-    <div class="item">Phone: {{ profile.phone or "-" }}</div>
-    <div class="item">Email: {{ profile.email or "-" }}</div>
-  </div>
+    <div class="mt-3"><label>Name</label><input class="input" name="name_th" value="{{ profile.name_th or '' }}"></div>
+    <div class="mt-3"><label>Position</label><input class="input" name="position_name" value="{{ profile.position_name or '' }}"></div>
+    <div class="mt-3"><label>Organization</label><input class="input" name="organization_name" value="{{ profile.organization_name or '' }}"></div>
+    <div class="mt-3"><label>Organization Code</label><input class="input" name="organization_code" value="{{ profile.organization_code or '' }}"></div>
+    <div class="mt-3"><label>License No</label><input class="input" name="license_no" value="{{ profile.license_no or '' }}"></div>
+    <div class="mt-3"><label>Phone</label><input class="input" name="phone" value="{{ profile.phone or '' }}"></div>
+    <div class="mt-3"><label>Email</label><input class="input" name="email" value="{{ profile.email or '' }}"></div>
+    <button class="btn mt-4">Update Profile</button>
+  </form>
   <div class="card mt-6">
     <div class="muted">Raw JSON</div>
     <pre>{{ profile.raw_json }}</pre>
+  </div>
+  <div class="card mt-6">
+    <div class="muted">Update History</div>
+    {% for h in history_rows %}
+      <div class="item">
+        <strong>{{ h.action }}</strong> by {{ h.changed_by or "-" }}
+        <pre>{{ h.diff_json }}</pre>
+      </div>
+    {% else %}<div class="muted">No history</div>{% endfor %}
   </div>
 </div>
 {% endblock %}

@@ -10,5 +10,19 @@
     </div>
     {% endfor %}
   </div>
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-3 mt-6">
+    <div class="card">
+      <h3>Access Status</h3>
+      <pre>{{ charts.access_status }}</pre>
+    </div>
+    <div class="card">
+      <h3>Send Status</h3>
+      <pre>{{ charts.send_status }}</pre>
+    </div>
+    <div class="card">
+      <h3>Delivery Status</h3>
+      <pre>{{ charts.delivery_status }}</pre>
+    </div>
+  </div>
 </div>
 {% endblock %}

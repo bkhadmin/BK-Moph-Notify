@@ -11,7 +11,7 @@
 <div class="sidebar">
   <div class="sidebar-brand">BK-Moph Notify</div>
   {% if menus.dashboard %}<a href="/dashboard">Dashboard</a>{% endif %}
-  <a href="/reports">Reports</a>
+  {% if menus.logs %}<a href="/reports">Reports</a>{% endif %}
   {% if menus.users %}<a href="/users">Users</a>{% endif %}
   <a href="/profiles">Provider Profiles</a>
   {% if menus.queries %}<a href="/queries">Approved Queries</a>{% endif %}
