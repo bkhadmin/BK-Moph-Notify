@@ -1,13 +1,9 @@
-# BK-Moph Notify – Module 10
+# BK-Moph Notify – Module 11
 
 สิ่งที่เพิ่ม
-- จัดการ MOPH Notify send error ให้แสดงบนหน้าเว็บ ไม่หลุด Internal Server Error
-- เก็บ error รายละเอียดลง send logs / access logs
-- หน้า System Connections เพิ่มสถานะ MOPH Notify config
-- หน้า MOPH Notify Test ใหม่ ใช้งานสะดวกขึ้น
-- provider callback error handling คงไว้และใช้ debug ได้ง่ายขึ้น
-- additive upgrade จาก Module 9
-
-จุดที่ช่วย debug ได้มากขึ้น
-- ถ้า MOPH Notify ตอบ 4xx/5xx จะเห็น http_status และ response_text ที่ sanitize แล้ว
-- ถ้า config ไม่ครบ จะดูได้จาก /system/connections
+- แก้ SQL guard ให้รองรับ comment style `--`, `#`, `/* */` ได้ โดยยังบล็อกคำสั่งอันตราย
+- ปรับ MOPH Notify URL join ให้ไม่เกิด `//api/notify/send`
+- เพิ่ม Provider token exchange fallback หลายรูปแบบเพื่อลดปัญหา 401
+- เพิ่ม diagnostics ของ provider token attempts แบบ sanitize
+- เพิ่ม Flex Message Builder แบบฟอร์มใช้งานง่าย
+- additive upgrade จาก Module 10
