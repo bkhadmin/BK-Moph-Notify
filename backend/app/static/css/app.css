@@ -93,3 +93,39 @@ pre{white-space:pre-wrap;word-break:break-word;overflow:auto;margin:0;font-famil
   color:#94a3b8;
   text-align:center;
 }
+
+
+.query-preview-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:14px;
+}
+.query-preview-card{
+  background:#fff;
+  border:1px solid #dbe3ee;
+  border-radius:16px;
+  padding:16px;
+  box-shadow:0 6px 16px rgba(15,23,42,.06);
+}
+.query-preview-title{
+  font-size:1rem;
+  font-weight:800;
+  color:#0f172a;
+  line-height:1.5;
+}
+.query-preview-sub{
+  margin-top:8px;
+  color:#64748b;
+  font-size:.9rem;
+  min-height:40px;
+}
+.query-preview-metric{
+  margin-top:14px;
+  font-size:2rem;
+  font-weight:900;
+  color:#2563eb;
+}
+.query-preview-label{
+  color:#64748b;
+  font-size:.85rem;
+}
