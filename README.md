@@ -1,12 +1,13 @@
-# BK-Moph Notify – Module 8
+# BK-Moph Notify – Module 9
 
 สิ่งที่เพิ่ม
-- role-based page guard ครอบทุกหน้าหลัก
-- provider profile history
-- manual profile update + compare history
-- reports dashboard with simple chart data
-- additive upgrade จาก Module 7
+- ปรับ CSS ใหม่ ไม่ให้ sidebar/content ทับกัน
+- ฟอร์มหน้า Approved Queries จัด layout ใหม่
+- ปุ่มทดสอบการเชื่อมต่อ HOSxP
+- หน้า System Connections สำหรับตรวจสอบ HOSxP และ Provider config
+- Provider callback error จะแสดงกลับหน้า login แบบอ่านง่าย ไม่ปล่อย Internal Server Error
+- SQL guard อนุญาต trailing semicolon ได้ แต่ยังบล็อก multi-statement
 
-หมายเหตุ
-- chart ตอนนี้เป็น summarized data block ในหน้า dashboard/report
-- ถ้าต้องการกราฟจริงขั้นถัดไป ควรเพิ่ม chart.js หรือ render ฝั่งหน้าเว็บ
+แนวทาง
+- ต่อจาก Module 8 แบบ additive
+- เน้น usability + diagnostics + ลด error ตอนใช้งานจริง
