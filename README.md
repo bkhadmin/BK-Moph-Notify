@@ -1,13 +1,13 @@
-# BK-Moph Notify – Module 9
+# BK-Moph Notify – Module 10
 
 สิ่งที่เพิ่ม
-- ปรับ CSS ใหม่ ไม่ให้ sidebar/content ทับกัน
-- ฟอร์มหน้า Approved Queries จัด layout ใหม่
-- ปุ่มทดสอบการเชื่อมต่อ HOSxP
-- หน้า System Connections สำหรับตรวจสอบ HOSxP และ Provider config
-- Provider callback error จะแสดงกลับหน้า login แบบอ่านง่าย ไม่ปล่อย Internal Server Error
-- SQL guard อนุญาต trailing semicolon ได้ แต่ยังบล็อก multi-statement
+- จัดการ MOPH Notify send error ให้แสดงบนหน้าเว็บ ไม่หลุด Internal Server Error
+- เก็บ error รายละเอียดลง send logs / access logs
+- หน้า System Connections เพิ่มสถานะ MOPH Notify config
+- หน้า MOPH Notify Test ใหม่ ใช้งานสะดวกขึ้น
+- provider callback error handling คงไว้และใช้ debug ได้ง่ายขึ้น
+- additive upgrade จาก Module 9
 
-แนวทาง
-- ต่อจาก Module 8 แบบ additive
-- เน้น usability + diagnostics + ลด error ตอนใช้งานจริง
+จุดที่ช่วย debug ได้มากขึ้น
+- ถ้า MOPH Notify ตอบ 4xx/5xx จะเห็น http_status และ response_text ที่ sanitize แล้ว
+- ถ้า config ไม่ครบ จะดูได้จาก /system/connections
