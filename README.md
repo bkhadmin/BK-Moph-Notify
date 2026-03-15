@@ -1,9 +1,14 @@
-# BK-Moph Notify – Module 12
+# Module 16
 
 สิ่งที่เพิ่ม
-- ปรับ role ของ user ที่ login ด้วย provider ได้จากหน้า Users
-- จัดการแสดง JSON ให้สวยขึ้นด้วย json box หลายหน้าหลัก
-- Approved Query เพิ่ม Edit / Delete
-- ย้าย Flex Builder มาอยู่ในหน้า MOPH Notify
-- ส่ง Flex ได้จากหน้า MOPH Notify โดยตรง
-- additive upgrade จาก Module 11
+- หน้า MOPH Notify รองรับ preset mode:
+  - Single Bubble
+  - Summary Bubble
+  - Top 5 Dashboard
+  - Carousel Item
+- Preview จาก query จริงแบบ visual card
+- รวม workflow ให้ใช้ query + template + flex preview ได้ในหน้าเดียว
+
+สิ่งที่แก้
+- คงส่วน template/query เดิมจาก Module 15
+- เพิ่ม visual preview สำหรับผล query จริง ไม่ใช่แค่ JSON
