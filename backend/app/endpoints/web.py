@@ -37,6 +37,7 @@ from app.services.delivery_reconcile import ingest_status_callback
 from app.services.pagination import paginate
 from app.services.chart_data import counter_from_rows
 from app.services.moph_notify import health_check as moph_notify_health_check
+from app.services.flex_transform import as_flex_message_payload, detect_mode_and_build
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -549,6 +550,62 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
         return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']), approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
+
+
+@router.post('/notify/auto-flex-preview')
+def notify_auto_flex_preview(
+    request:Request,
+    approved_query_id:int=Form(...),
+    auto_mode:str=Form('single'),
+    db:Session=Depends(get_db)
+):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    q = get_query_by_id(db, approved_query_id)
+    data = preview_query(q.sql_text, max_rows=q.max_rows)
+    rows = data['rows']
+    contents = detect_mode_and_build(rows, auto_mode)
+    flex_json = json.dumps(contents, ensure_ascii=False, indent=2)
+    return templates.TemplateResponse('admin/notify_test.html', ctx(
+        request, db, session,
+        result=None, send_error=None, template_payload=None,
+        data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
+        approved_queries=get_queries(db), message_templates=get_templates(db),
+        media_files=get_media(db), flex_json=flex_json
+    ))
+
+@router.post('/notify/auto-flex-send')
+async def notify_auto_flex_send(
+    request:Request,
+    approved_query_id:int=Form(...),
+    auto_mode:str=Form('single'),
+    db:Session=Depends(get_db)
+):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    q = get_query_by_id(db, approved_query_id)
+    data = preview_query(q.sql_text, max_rows=q.max_rows)
+    rows = data['rows']
+    payload = as_flex_message_payload(rows, auto_mode)
+    try:
+        result, _ = await send_with_log(db, session.get('username'), payload, f'auto flex from query {q.id} mode={auto_mode}')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.auto_flex', 'success', f'query_id={q.id} mode={auto_mode}')
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=result, send_error=None, template_payload=payload,
+            data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+        ))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.auto_flex', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=None, send_error=str(exc), template_payload=payload,
+            data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+        ))
 
 @router.get('/schedules')
 def schedules_page(request:Request, db:Session=Depends(get_db)):

@@ -2,7 +2,7 @@
 {% block body %}
 <div class="page-header">
   <h1 class="page-title">MOPH Notify Test</h1>
-  <div class="muted">Module 16: preset modes + template/query visual workflow</div>
+  <div class="muted">Module 17: auto map query rows to flex payload</div>
 </div>
 
 {% if send_error %}
@@ -61,6 +61,50 @@
       <div class="muted">กด Preview Flex เพื่อดูตัวอย่างแบบการ์ด</div>
     </div>
   </div>
+</div>
+
+<div class="grid-2 mt-6">
+  <form method="post" action="/notify/auto-flex-preview" class="card">
+    <h3>Auto Build Flex From Query</h3>
+    <div class="mt-3">
+      <label>Approved Query</label>
+      <select name="approved_query_id" class="input">
+        {% for q in approved_queries %}
+        <option value="{{ q.id }}">{{ q.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mt-3">
+      <label>Auto Mode</label>
+      <select name="auto_mode" class="input">
+        <option value="single">Single Bubble</option>
+        <option value="carousel">Carousel</option>
+        <option value="top5">Top 5 Dashboard</option>
+      </select>
+    </div>
+    <button class="btn mt-4">Preview Auto Flex</button>
+  </form>
+
+  <form method="post" action="/notify/auto-flex-send" class="card">
+    <h3>Send Auto Flex From Query</h3>
+    <div class="mt-3">
+      <label>Approved Query</label>
+      <select name="approved_query_id" class="input">
+        {% for q in approved_queries %}
+        <option value="{{ q.id }}">{{ q.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mt-3">
+      <label>Auto Mode</label>
+      <select name="auto_mode" class="input">
+        <option value="single">Single Bubble</option>
+        <option value="carousel">Carousel</option>
+        <option value="top5">Top 5 Dashboard</option>
+      </select>
+    </div>
+    <button class="btn mt-4">Send Auto Flex</button>
+  </form>
 </div>
 
 <div class="grid-2 mt-6">
@@ -142,13 +186,6 @@
   <div class="json-box mt-3"><pre>{{ pretty_json(result) }}</pre></div>
 </div>
 {% endif %}
-
-<div class="card mt-6">
-  <h3>การใช้งานแนะนำ</h3>
-  <div class="muted">
-    Single Bubble = ส่งทีละคลินิก, Summary Bubble = สรุปคลินิกเดียวแบบอ่านง่าย, Top 5 Dashboard = สรุปผู้บริหาร, Carousel Item = ใช้สร้างการ์ดหลายใบ
-  </div>
-</div>
 
 <script src="/static/js/flex_preview.js"></script>
 <script>
