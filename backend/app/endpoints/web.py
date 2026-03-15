@@ -24,8 +24,8 @@ from app.repositories.delivery_statuses import get_all as get_delivery_statuses
 from app.repositories.provider_profiles import get_all as get_provider_profiles, get_by_id as get_provider_profile_by_id, update_profile_manual
 from app.repositories.provider_profile_histories import get_all_for_profile
 from app.services.rbac import allowed_menu
-from app.services.provider_auth import provider_login_url,exchange_profile
-from app.services.hosxp_query import preview_query
+from app.services.provider_auth import provider_login_url,exchange_profile,test_provider_config
+from app.services.hosxp_query import preview_query, test_connection
 from app.services.sql_guard import ensure_safe_select
 from app.services.template_render import render_text_template, build_message_payload
 from app.services.scheduler_service import parse_next_run
@@ -84,15 +84,18 @@ def ctx(request:Request, db:Session, session:dict|None, **extra):
     data.update(extra)
     return data
 
+def render_login(request:Request, error:str|None=None):
+    token=new_token()
+    response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':error,'provider_login_enabled':settings.provider_login_enabled})
+    response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
+    return response
+
 @router.get('/health')
 def health(): return {'status':'ok','app':settings.app_name}
 
 @router.get('/login')
-def login_page(request:Request):
-    token=new_token()
-    response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':None,'provider_login_enabled':settings.provider_login_enabled})
-    response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
-    return response
+def login_page(request:Request, error:str|None=None):
+    return render_login(request, error)
 
 @router.post('/login')
 def login(request:Request, username:str=Form(...), password:str=Form(...), csrf_token:str=Form(...), db:Session=Depends(get_db)):
@@ -103,19 +106,13 @@ def login(request:Request, username:str=Form(...), password:str=Form(...), csrf_
         raise HTTPException(status_code=403, detail='IP banned')
     cookie_token=request.cookies.get(settings.csrf_cookie_name)
     if settings.csrf_enabled and not valid(cookie_token, csrf_token):
-        token=new_token()
         write_log(db, username, ip, 'login.local', 'failed', 'csrf validation failed')
-        response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':'CSRF validation failed','provider_login_enabled':settings.provider_login_enabled}, status_code=status.HTTP_403_FORBIDDEN)
-        response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
-        return response
+        return render_login(request, 'CSRF validation failed')
     user=get_by_username(db, username)
     if not user or not user.password_hash or not verify_password(password, user.password_hash):
         row=touch_fail(db, ip, settings.ip_ban_threshold)
-        token=new_token()
         write_log(db, username, ip, 'login.local', 'failed', f'invalid credential fail_count={row.fail_count}')
-        response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':'Username หรือ Password ไม่ถูกต้อง','provider_login_enabled':settings.provider_login_enabled}, status_code=status.HTTP_401_UNAUTHORIZED)
-        response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
-        return response
+        return render_login(request, 'Username หรือ Password ไม่ถูกต้อง')
     clear_fail(db, ip)
     sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
     write_log(db, user.username, ip, 'login.local', 'success', None)
@@ -128,16 +125,26 @@ def provider_login():
     return RedirectResponse(provider_login_url(), status_code=302)
 
 @router.get('/api/v1/auth/provider/callback')
-async def provider_callback(request:Request, code:str, db:Session=Depends(get_db)):
+async def provider_callback(request:Request, code:str|None=None, error:str|None=None, db:Session=Depends(get_db)):
     ip=client_ip(request)
-    profile=await exchange_profile(code)
-    default_role=get_by_code(db, 'user')
-    user=upsert_provider_user(db, profile, default_role.id if default_role else None)
-    sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
-    write_log(db, user.username, ip, 'login.provider', 'success', f"provider_id={profile.get('provider_id')}")
-    response=RedirectResponse('/dashboard', status_code=302)
-    response.set_cookie(settings.session_cookie_name, sid, httponly=True, samesite=settings.session_cookie_samesite, path='/')
-    return response
+    if error:
+        write_log(db, None, ip, 'login.provider', 'failed', f'provider_error={error}')
+        return render_login(request, f'Provider login failed: {error}')
+    if not code:
+        write_log(db, None, ip, 'login.provider', 'failed', 'missing authorization code')
+        return render_login(request, 'Provider login failed: missing authorization code')
+    try:
+        profile=await exchange_profile(code)
+        default_role=get_by_code(db, 'user')
+        user=upsert_provider_user(db, profile, default_role.id if default_role else None)
+        sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
+        write_log(db, user.username, ip, 'login.provider', 'success', f"provider_id={profile.get('provider_id')}")
+        response=RedirectResponse('/dashboard', status_code=302)
+        response.set_cookie(settings.session_cookie_name, sid, httponly=True, samesite=settings.session_cookie_samesite, path='/')
+        return response
+    except Exception as exc:
+        write_log(db, None, ip, 'login.provider', 'failed', str(exc))
+        return render_login(request, f'Provider callback error: {exc}')
 
 @router.post('/api/v1/notify/status/callback')
 async def notify_status_callback(request:Request, db:Session=Depends(get_db)):
@@ -150,6 +157,24 @@ def dashboard(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'dashboard')
     return templates.TemplateResponse('admin/dashboard.html', ctx(request, db, session, users=get_users(db), logs=get_access_logs(db), send_logs=get_send_logs(db), jobs=get_jobs(db), media_files=get_media(db), delivery_statuses=get_delivery_statuses(db), provider_profiles=get_provider_profiles(db)))
+
+@router.get('/system/connections')
+async def system_connections(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    logs_menu = allowed_menu(db, session.get('role_id'), 'logs')
+    if not logs_menu:
+        raise HTTPException(status_code=403, detail='forbidden')
+    hosxp_result = None
+    provider_result = None
+    try:
+        hosxp_result = test_connection()
+    except Exception as exc:
+        hosxp_result = {"status": "failed", "detail": str(exc)}
+    try:
+        provider_result = await test_provider_config()
+    except Exception as exc:
+        provider_result = {"status": "failed", "detail": str(exc)}
+    return templates.TemplateResponse('admin/system_connections.html', ctx(request, db, session, hosxp_result=hosxp_result, provider_result=provider_result))
 
 @router.get('/reports')
 def reports_page(request:Request, db:Session=Depends(get_db)):
@@ -273,7 +298,7 @@ def logs_export(kind:str, request:Request, q:str='', format:str='csv', db:Sessio
 def queries_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'queries')
-    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None))
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test=None))
 
 @router.post('/queries')
 def create_query_page(request:Request, name:str=Form(...), sql_text:str=Form(...), max_rows:int=Form(100), db:Session=Depends(get_db)):
@@ -284,7 +309,7 @@ def create_query_page(request:Request, name:str=Form(...), sql_text:str=Form(...
         create_query(db, name, sql_text, max_rows)
         write_log(db, session.get('username'), client_ip(request), 'query.create', 'success', name)
         return RedirectResponse('/queries', status_code=302)
-    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=reason))
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=reason, hosxp_test=None))
 
 @router.post('/queries/preview')
 def preview_query_page(request:Request, sql_text:str=Form(...), max_rows:int=Form(20), db:Session=Depends(get_db)):
@@ -293,10 +318,22 @@ def preview_query_page(request:Request, sql_text:str=Form(...), max_rows:int=For
     try:
         preview = preview_query(sql_text, max_rows=max_rows)
         write_log(db, session.get('username'), client_ip(request), 'query.preview', 'success', f"rows={preview['row_count']}")
-        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=preview, error=None))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=preview, error=None, hosxp_test=None))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'query.preview', 'failed', str(exc))
-        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=str(exc)))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=str(exc), hosxp_test=None))
+
+@router.post('/queries/test-connection')
+def query_test_connection(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'queries')
+    try:
+        result = test_connection()
+        write_log(db, session.get('username'), client_ip(request), 'query.test_connection', 'success', json.dumps(result, ensure_ascii=False))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test=result))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'query.test_connection', 'failed', str(exc))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test={"status":"failed","detail":str(exc)}))
 
 @router.get('/templates')
 def templates_page(request:Request, db:Session=Depends(get_db)):

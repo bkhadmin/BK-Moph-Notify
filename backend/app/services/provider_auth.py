@@ -12,8 +12,17 @@ def provider_login_url() -> str:
     }
     return f"{settings.health_id_base_url}/oauth/redirect?{urlencode(query)}"
 
+def _extract_data(payload):
+    if not isinstance(payload, dict):
+        return {}
+    return payload.get("data", payload)
+
+def _pick_token(payload:dict):
+    data = _extract_data(payload)
+    return data.get("access_token") or data.get("token") or payload.get("access_token") or payload.get("token")
+
 async def exchange_health_token(code: str) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         response = await client.post(
             f"{settings.health_id_base_url}/api/v1/token",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -29,7 +38,7 @@ async def exchange_health_token(code: str) -> dict:
         return response.json()
 
 async def exchange_provider_token(health_access_token: str) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         response = await client.post(
             settings.provider_service_token_url,
             json={
@@ -38,6 +47,7 @@ async def exchange_provider_token(health_access_token: str) -> dict:
                 "token_by": "Health ID",
                 "token": health_access_token,
             },
+            headers={"Content-Type": "application/json"},
         )
         response.raise_for_status()
         return response.json()
@@ -51,7 +61,7 @@ async def fetch_provider_profile(provider_access_token: str) -> dict:
     if settings.provider_profile_position_type in (0, 1):
         params["position_type"] = str(settings.provider_profile_position_type)
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         response = await client.get(
             settings.provider_profile_url,
             params=params,
@@ -66,6 +76,21 @@ async def fetch_provider_profile(provider_access_token: str) -> dict:
         payload = response.json()
         return payload.get("data", payload) if isinstance(payload, dict) else {}
 
+async def test_provider_config() -> dict:
+    checks = {
+        "provider_login_enabled": settings.provider_login_enabled,
+        "health_id_base_url": bool(settings.health_id_base_url),
+        "health_id_client_id": bool(settings.health_id_client_id),
+        "health_id_client_secret": bool(settings.health_id_client_secret),
+        "health_id_redirect_uri": bool(settings.health_id_redirect_uri),
+        "provider_client_id": bool(settings.provider_client_id),
+        "provider_secret_key": bool(settings.provider_secret_key),
+        "provider_service_token_url": bool(settings.provider_service_token_url),
+        "provider_profile_url": bool(settings.provider_profile_url),
+    }
+    ok = all(checks.values())
+    return {"status": "ok" if ok else "incomplete", "checks": checks}
+
 async def exchange_profile(code: str) -> dict:
     if not settings.provider_login_enabled:
         return {
@@ -76,18 +101,18 @@ async def exchange_profile(code: str) -> dict:
         }
 
     health_payload = await exchange_health_token(code)
-    health_data = health_payload.get("data", health_payload)
-    health_access_token = health_data.get("access_token")
+    health_access_token = _pick_token(health_payload)
     if not health_access_token:
-        raise ValueError("Health ID access_token not found")
+        raise ValueError(f"Health ID access_token not found: {health_payload}")
 
     provider_token_payload = await exchange_provider_token(health_access_token)
-    provider_token_data = provider_token_payload.get("data", provider_token_payload)
-    provider_access_token = provider_token_data.get("access_token")
+    provider_access_token = _pick_token(provider_token_payload)
     if not provider_access_token:
-        raise ValueError("Provider access_token not found")
+        raise ValueError(f"Provider access_token not found: {provider_token_payload}")
 
     profile = await fetch_provider_profile(provider_access_token)
-    profile["_health_token_payload"] = health_data
-    profile["_provider_token_payload"] = provider_token_data
+    if not isinstance(profile, dict) or not profile:
+        raise ValueError("Provider profile response is empty")
+    profile["_health_token_payload"] = _extract_data(health_payload)
+    profile["_provider_token_payload"] = _extract_data(provider_token_payload)
     return profile
