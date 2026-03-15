@@ -36,6 +36,7 @@ from app.services.xlsx_export import to_xlsx_bytes
 from app.services.delivery_reconcile import ingest_status_callback
 from app.services.pagination import paginate
 from app.services.chart_data import counter_from_rows
+from app.services.moph_notify import health_check as moph_notify_health_check
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -164,8 +165,6 @@ async def system_connections(request:Request, db:Session=Depends(get_db)):
     logs_menu = allowed_menu(db, session.get('role_id'), 'logs')
     if not logs_menu:
         raise HTTPException(status_code=403, detail='forbidden')
-    hosxp_result = None
-    provider_result = None
     try:
         hosxp_result = test_connection()
     except Exception as exc:
@@ -174,7 +173,11 @@ async def system_connections(request:Request, db:Session=Depends(get_db)):
         provider_result = await test_provider_config()
     except Exception as exc:
         provider_result = {"status": "failed", "detail": str(exc)}
-    return templates.TemplateResponse('admin/system_connections.html', ctx(request, db, session, hosxp_result=hosxp_result, provider_result=provider_result))
+    try:
+        notify_result = await moph_notify_health_check()
+    except Exception as exc:
+        notify_result = {"status": "failed", "detail": str(exc)}
+    return templates.TemplateResponse('admin/system_connections.html', ctx(request, db, session, hosxp_result=hosxp_result, provider_result=provider_result, notify_result=notify_result))
 
 @router.get('/reports')
 def reports_page(request:Request, db:Session=Depends(get_db)):
@@ -382,16 +385,20 @@ async def media_upload(request:Request, image:UploadFile=File(...), db:Session=D
 def notify_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'notify')
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
 @router.post('/notify/test')
 async def notify_send(request:Request, message_text:str=Form(...), db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'notify')
     payload=[{"type":"text","text":message_text}]
-    result, _ = await send_with_log(db, session.get('username'), payload, 'manual text send')
-    write_log(db, session.get('username'), client_ip(request), 'notify.send', 'success', 'manual text send')
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    try:
+        result, _ = await send_with_log(db, session.get('username'), payload, 'manual text send')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send', 'success', 'manual text send')
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.send', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
 @router.post('/notify/preview')
 def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
@@ -402,7 +409,7 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     first_row = data['rows'][0] if data['rows'] else {}
     payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, template_payload=payload, data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=payload, data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
 @router.post('/notify/send-from-template')
 async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
@@ -412,9 +419,13 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     t = get_template_by_id(db, message_template_id)
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in data['rows']]
-    result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
-    write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    try:
+        result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
 @router.get('/schedules')
 def schedules_page(request:Request, db:Session=Depends(get_db)):
