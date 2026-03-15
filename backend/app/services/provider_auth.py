@@ -1,3 +1,4 @@
+import os
 import secrets
 from urllib.parse import urlencode
 import httpx
@@ -21,6 +22,21 @@ def _pick_token(payload:dict):
     data = _extract_data(payload)
     return data.get("access_token") or data.get("token") or payload.get("access_token") or payload.get("token")
 
+def _provider_token_modes():
+    configured = os.getenv("PROVIDER_TOKEN_BY", "Health ID").strip() or "Health ID"
+    modes = []
+    for item in [configured, "Health ID", "MOPH ID", "health_id", "moph_id"]:
+        if item not in modes:
+            modes.append(item)
+    return modes
+
+def _sanitize_response(status_code:int, text:str, variant:str):
+    return {
+        "status_code": status_code,
+        "variant": variant,
+        "response_text": (text or "")[:1200]
+    }
+
 async def exchange_health_token(code: str) -> dict:
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         response = await client.post(
@@ -37,20 +53,76 @@ async def exchange_health_token(code: str) -> dict:
         response.raise_for_status()
         return response.json()
 
-async def exchange_provider_token(health_access_token: str) -> dict:
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        response = await client.post(
-            settings.provider_service_token_url,
+async def _try_provider_variant(client:httpx.AsyncClient, url:str, token_by:str, health_access_token:str, variant:str):
+    if variant == "json_body":
+        return await client.post(
+            url,
             json={
                 "client_id": settings.provider_client_id,
                 "secret_key": settings.provider_secret_key,
-                "token_by": "Health ID",
+                "token_by": token_by,
                 "token": health_access_token,
             },
             headers={"Content-Type": "application/json"},
         )
-        response.raise_for_status()
-        return response.json()
+    if variant == "json_header":
+        return await client.post(
+            url,
+            json={"token_by": token_by, "token": health_access_token},
+            headers={
+                "Content-Type": "application/json",
+                "client-id": settings.provider_client_id,
+                "secret-key": settings.provider_secret_key,
+            },
+        )
+    if variant == "form_body":
+        return await client.post(
+            url,
+            data={
+                "client_id": settings.provider_client_id,
+                "secret_key": settings.provider_secret_key,
+                "token_by": token_by,
+                "token": health_access_token,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    return await client.post(
+        url,
+        json={
+            "clientId": settings.provider_client_id,
+            "secretKey": settings.provider_secret_key,
+            "tokenBy": token_by,
+            "token": health_access_token,
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+async def exchange_provider_token(health_access_token: str) -> dict:
+    attempts = []
+    variants = ["json_body", "json_header", "form_body", "json_camel"]
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        for token_by in _provider_token_modes():
+            for variant in variants:
+                response = await _try_provider_variant(
+                    client,
+                    settings.provider_service_token_url,
+                    token_by,
+                    health_access_token,
+                    variant,
+                )
+                if response.status_code < 400:
+                    try:
+                        return response.json()
+                    except Exception:
+                        return {"raw_text": response.text, "variant": variant, "token_by": token_by}
+                attempts.append(_sanitize_response(response.status_code, response.text, f"{variant}:{token_by}"))
+    raise ValueError({
+        "message": "Provider service token exchange failed",
+        "endpoint": settings.provider_service_token_url,
+        "client_id_present": bool(settings.provider_client_id),
+        "secret_key_present": bool(settings.provider_secret_key),
+        "attempts": attempts,
+    })
 
 async def fetch_provider_profile(provider_access_token: str) -> dict:
     params = {}
@@ -87,8 +159,9 @@ async def test_provider_config() -> dict:
         "provider_secret_key": bool(settings.provider_secret_key),
         "provider_service_token_url": bool(settings.provider_service_token_url),
         "provider_profile_url": bool(settings.provider_profile_url),
+        "provider_token_by_modes": _provider_token_modes(),
     }
-    ok = all(checks.values())
+    ok = all(bool(v) for k, v in checks.items() if k != "provider_token_by_modes")
     return {"status": "ok" if ok else "incomplete", "checks": checks}
 
 async def exchange_profile(code: str) -> dict:

@@ -457,6 +457,68 @@ def rbac_update(role_id:int, request:Request, permission_ids:list[int]=Form(defa
     write_log(db, session.get('username'), client_ip(request), 'rbac.update', 'success', f'role_id={role_id}')
     return RedirectResponse('/rbac', status_code=302)
 
+
+@router.get('/flex-builder')
+def flex_builder_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    sample = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "หัวข้อ", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": "รายละเอียด", "wrap": True, "margin": "md"}
+            ]
+        }
+    }
+    return templates.TemplateResponse('admin/flex_builder.html', ctx(request, db, session, flex_json=json.dumps(sample, ensure_ascii=False, indent=2), flex_error=None))
+
+@router.post('/flex-builder')
+def flex_builder_generate(
+    request:Request,
+    title:str=Form('หัวข้อ'),
+    subtitle:str=Form(''),
+    body_text:str=Form('รายละเอียด'),
+    button_label:str=Form(''),
+    button_url:str=Form(''),
+    hero_image_url:str=Form(''),
+    db:Session=Depends(get_db)
+):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    bubble = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": []
+        }
+    }
+    body_contents = bubble["body"]["contents"]
+    if title:
+        body_contents.append({"type": "text", "text": title, "weight": "bold", "size": "lg", "wrap": True})
+    if subtitle:
+        body_contents.append({"type": "text", "text": subtitle, "size": "sm", "color": "#64748b", "wrap": True, "margin": "md"})
+    if body_text:
+        body_contents.append({"type": "text", "text": body_text, "wrap": True, "margin": "md"})
+    if hero_image_url:
+        bubble["hero"] = {"type": "image", "url": hero_image_url, "size": "full", "aspectMode": "cover", "aspectRatio": "20:13"}
+    if button_label and button_url:
+        bubble["footer"] = {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [{
+                "type": "button",
+                "style": "primary",
+                "action": {"type": "uri", "label": button_label, "uri": button_url}
+            }]
+        }
+    flex_json = json.dumps(bubble, ensure_ascii=False, indent=2)
+    return templates.TemplateResponse('admin/flex_builder.html', ctx(request, db, session, flex_json=flex_json, flex_error=None))
+
+
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):
     session=get_current_session(request)

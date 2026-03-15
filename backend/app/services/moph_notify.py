@@ -3,12 +3,23 @@ import json
 import httpx
 from app.core.config import settings
 
+def _base_url():
+    return (settings.moph_notify_base_url or '').rstrip('/')
+
+def _send_path():
+    path = (settings.moph_notify_send_path or '/api/notify/send').strip()
+    return '/' + path.lstrip('/')
+
+def _notify_url():
+    return f"{_base_url()}{_send_path()}"
+
 def _sanitize_headers():
     return {
         "client-key_present": bool(settings.moph_notify_client_key),
         "secret-key_present": bool(settings.moph_notify_secret_key),
         "base_url": settings.moph_notify_base_url,
         "send_path": settings.moph_notify_send_path,
+        "normalized_url": _notify_url(),
     }
 
 def normalize_result(payload:dict) -> dict:
@@ -22,13 +33,11 @@ def normalize_result(payload:dict) -> dict:
     }
 
 async def health_check() -> dict:
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-        url = f"{settings.moph_notify_base_url}{settings.moph_notify_send_path}"
-        return {"status": "configured", "url": url, **_sanitize_headers()}
+    return {"status": "configured", "url": _notify_url(), **_sanitize_headers()}
 
 async def send_messages(messages: list[dict], retries:int=3) -> dict:
     last_exc = None
-    url = f"{settings.moph_notify_base_url}{settings.moph_notify_send_path}"
+    url = _notify_url()
     headers = {
         "Content-Type": "application/json",
         "client-key": settings.moph_notify_client_key,
