@@ -129,3 +129,13 @@ pre{white-space:pre-wrap;word-break:break-word;overflow:auto;margin:0;font-famil
   color:#64748b;
   font-size:.85rem;
 }
+
+
+.success-box{
+  background:#dcfce7;
+  color:#166534;
+  border:1px solid #bbf7d0;
+  border-radius:12px;
+  padding:12px 14px;
+  font-weight:700;
+}

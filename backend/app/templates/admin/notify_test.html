@@ -2,11 +2,26 @@
 {% block body %}
 <div class="page-header">
   <h1 class="page-title">MOPH Notify Test</h1>
-  <div class="muted">Module 17: auto map query rows to flex payload</div>
+  <div class="muted">Module 18: validate flex + send minimal flex + safer payload flow</div>
 </div>
 
 {% if send_error %}
 <div class="alert error mt-4">{{ send_error }}</div>
+{% endif %}
+
+{% if validation_errors is defined and validation_errors is not none %}
+<div class="card mt-4">
+  <div class="muted">Flex Validation Result</div>
+  {% if validation_errors %}
+    <div class="alert error mt-3">
+      {% for err in validation_errors %}
+      <div>{{ err }}</div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="success-box mt-3">Flex payload valid</div>
+  {% endif %}
+</div>
 {% endif %}
 
 <div class="grid-2 mt-6">
@@ -48,6 +63,10 @@
     <textarea id="flex-json" class="textarea" name="flex_json" rows="18">{{ flex_json or '' }}</textarea>
     <div class="page-actions mt-3">
       <button type="button" class="btn secondary" onclick="renderFlexPreview('flex-json','flex-preview')">Preview Flex</button>
+      <form method="post" action="/notify/validate-flex" onsubmit="document.getElementById('flex-json-hidden-validate').value=document.getElementById('flex-json').value">
+        <input type="hidden" name="flex_json" id="flex-json-hidden-validate">
+        <button class="btn secondary">Validate Flex</button>
+      </form>
       <form method="post" action="/notify/send-flex" onsubmit="document.getElementById('flex-json-hidden').value=document.getElementById('flex-json').value">
         <input type="hidden" name="flex_json" id="flex-json-hidden">
         <button class="btn">Send Flex</button>
@@ -60,6 +79,9 @@
     <div id="flex-preview" class="flex-preview-wrap">
       <div class="muted">กด Preview Flex เพื่อดูตัวอย่างแบบการ์ด</div>
     </div>
+    <form method="post" action="/notify/send-minimal-flex" class="mt-6">
+      <button class="btn secondary">Send Minimal Flex</button>
+    </form>
   </div>
 </div>
 

@@ -38,6 +38,7 @@ from app.services.pagination import paginate
 from app.services.chart_data import counter_from_rows
 from app.services.moph_notify import health_check as moph_notify_health_check
 from app.services.flex_transform import as_flex_message_payload, detect_mode_and_build
+from app.services.flex_validator import validate_flex_message_payload, build_minimal_flex_payload
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -464,14 +465,17 @@ async def notify_send_flex(request:Request, flex_json:str=Form(...), db:Session=
     session=require_session(request)
     require_menu(db, session, 'notify')
     try:
-        bubble = json.loads(flex_json)
-        payload=[{"type":"flex","altText":"Flex Message Preview","contents":bubble}]
+        contents = json.loads(flex_json)
+        payload=[{"type":"flex","altText":"Flex Message Preview","contents":contents}]
+        ok, errors = validate_flex_message_payload(payload)
+        if not ok:
+            raise ValueError("Flex validation failed: " + "; ".join(errors))
         result, _ = await send_with_log(db, session.get('username'), payload, 'manual flex send')
         write_log(db, session.get('username'), client_ip(request), 'notify.send.flex', 'success', 'manual flex send')
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, validation_errors=None, template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.flex', 'failed', str(exc))
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), validation_errors=None, template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
 
 @router.post('/notify/flex-builder')
 def notify_flex_builder(
@@ -551,6 +555,52 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
         return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']), approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
 
+
+
+@router.post('/notify/validate-flex')
+def notify_validate_flex(request:Request, flex_json:str=Form(...), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    validation_errors = None
+    try:
+        contents = json.loads(flex_json)
+        payload=[{"type":"flex","altText":"Flex Message Preview","contents":contents}]
+        ok, errors = validate_flex_message_payload(payload)
+        validation_errors = [] if ok else errors
+    except Exception as exc:
+        validation_errors = [str(exc)]
+    return templates.TemplateResponse('admin/notify_test.html', ctx(
+        request, db, session,
+        result=None, send_error=None, validation_errors=validation_errors,
+        template_payload=None, data_rows=None, query_visual_rows=None,
+        approved_queries=get_queries(db), message_templates=get_templates(db),
+        media_files=get_media(db), flex_json=flex_json
+    ))
+
+@router.post('/notify/send-minimal-flex')
+async def notify_send_minimal_flex(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    payload = build_minimal_flex_payload()
+    try:
+        result, _ = await send_with_log(db, session.get('username'), payload, 'minimal flex send')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.minimal_flex', 'success', 'minimal flex send')
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=result, send_error=None, validation_errors=[],
+            template_payload=payload, data_rows=None, query_visual_rows=None,
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+        ))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.minimal_flex', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=None, send_error=str(exc), validation_errors=None,
+            template_payload=payload, data_rows=None, query_visual_rows=None,
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+        ))
 
 @router.post('/notify/auto-flex-preview')
 def notify_auto_flex_preview(
