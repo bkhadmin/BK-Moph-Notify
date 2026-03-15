@@ -1,169 +1,382 @@
-from fastapi import APIRouter, Request, Form, Depends, status
-from fastapi.responses import RedirectResponse
+import json
+from datetime import datetime
+from fastapi import APIRouter,Request,Form,Depends,status,HTTPException,UploadFile,File
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.core.csrf import new_token, valid
-from app.core.session import create_session, get_session, destroy_session
-from app.core.rbac import allowed_menu
+from app.core.csrf import new_token,valid
+from app.core.session import create_session,get_session,destroy_session
 from app.core.security import verify_password
 from app.db.session import get_db
-from app.repositories.users import get_by_username, get_all
-from app.repositories.queries import list_queries, create_query, delete_query
-from app.repositories.templates import list_templates, create_template, delete_template
-from app.repositories.audit_logs import list_logs, write_log
+from app.repositories.users import get_by_username,get_all as get_users,upsert_provider_user
+from app.repositories.roles import get_by_code,get_all as get_roles
+from app.repositories.permissions import get_all as get_permissions
+from app.repositories.access_logs import write_log,get_all as get_access_logs
+from app.repositories.ip_bans import get_by_ip,touch_fail,clear_fail
+from app.repositories.role_permissions import set_role_permissions,get_permission_codes_for_role
+from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id
+from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id
+from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
+from app.repositories.send_logs import get_all as get_send_logs
+from app.repositories.media_files import create_item as create_media, get_all as get_media
+from app.repositories.delivery_statuses import get_all as get_delivery_statuses
+from app.repositories.provider_profiles import get_all as get_provider_profiles, get_by_id as get_provider_profile_by_id
+from app.services.rbac import allowed_menu
+from app.services.provider_auth import provider_login_url,exchange_profile
+from app.services.hosxp_query import preview_query
 from app.services.sql_guard import ensure_safe_select
+from app.services.template_render import render_text_template, build_message_payload
+from app.services.scheduler_service import parse_next_run
+from app.services.media_service import save_resized_image
+from app.services.send_pipeline import send_with_log
+from app.services.csv_export import to_csv_bytes
+from app.services.xlsx_export import to_xlsx_bytes
+from app.services.delivery_reconcile import ingest_status_callback
+from app.services.pagination import paginate
 
-router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+router=APIRouter()
+templates=Jinja2Templates(directory='app/templates')
 
-
-def _session(request: Request):
+def client_ip(request:Request)->str:
+    return request.headers.get('x-forwarded-for', request.client.host if request.client else 'unknown').split(',')[0].strip()
+def get_current_session(request:Request):
     return get_session(request.cookies.get(settings.session_cookie_name))
 
+def _filter_rows(rows, keyword:str):
+    if not keyword:
+        return rows
+    k = keyword.lower()
+    out = []
+    for row in rows:
+        text = ' '.join('' if v is None else str(v) for v in row.values()).lower()
+        if k in text:
+            out.append(row)
+    return out
 
-def _ctx(request: Request, session: dict, **extra):
-    menus = {m: allowed_menu(session.get("role"), m) for m in ["dashboard", "users", "queries", "templates", "send", "audit"]}
-    data = {"request": request, "session": session, "menus": menus}
+def ctx(request:Request, db:Session, session:dict|None, **extra):
+    role_id=session.get('role_id') if session else None
+    menus={
+        'dashboard':allowed_menu(db,role_id,'dashboard'),
+        'users':allowed_menu(db,role_id,'users'),
+        'logs':allowed_menu(db,role_id,'logs'),
+        'rbac':allowed_menu(db,role_id,'rbac'),
+        'notify':allowed_menu(db,role_id,'notify'),
+        'queries':allowed_menu(db,role_id,'queries'),
+        'templates':allowed_menu(db,role_id,'templates'),
+        'schedules':allowed_menu(db,role_id,'schedules'),
+        'media':allowed_menu(db,role_id,'media'),
+    }
+    data={'request':request,'session':session,'menus':menus}
     data.update(extra)
     return data
 
+@router.get('/health')
+def health(): return {'status':'ok','app':settings.app_name}
 
-@router.get("/login")
-def login_page(request: Request):
-    token = new_token()
-    response = templates.TemplateResponse("login.html", {"request": request, "csrf_token": token, "error": None})
-    response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path="/")
+@router.get('/login')
+def login_page(request:Request):
+    token=new_token()
+    response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':None,'provider_login_enabled':settings.provider_login_enabled})
+    response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
     return response
 
-
-@router.post("/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...), csrf_token: str = Form(...), db: Session = Depends(get_db)):
-    cookie_token = request.cookies.get(settings.csrf_cookie_name)
+@router.post('/login')
+def login(request:Request, username:str=Form(...), password:str=Form(...), csrf_token:str=Form(...), db:Session=Depends(get_db)):
+    ip=client_ip(request)
+    ban=get_by_ip(db, ip)
+    if ban and ban.is_banned=='Y':
+        write_log(db, username, ip, 'login.local', 'blocked', 'IP banned')
+        raise HTTPException(status_code=403, detail='IP banned')
+    cookie_token=request.cookies.get(settings.csrf_cookie_name)
     if settings.csrf_enabled and not valid(cookie_token, csrf_token):
-        token = new_token()
-        return templates.TemplateResponse("login.html", {"request": request, "csrf_token": token, "error": "CSRF validation failed"}, status_code=status.HTTP_403_FORBIDDEN)
-
-    user = get_by_username(db, username)
+        token=new_token()
+        write_log(db, username, ip, 'login.local', 'failed', 'csrf validation failed')
+        response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':'CSRF validation failed','provider_login_enabled':settings.provider_login_enabled}, status_code=status.HTTP_403_FORBIDDEN)
+        response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
+        return response
+    user=get_by_username(db, username)
     if not user or not user.password_hash or not verify_password(password, user.password_hash):
-        token = new_token()
-        return templates.TemplateResponse("login.html", {"request": request, "csrf_token": token, "error": "Username หรือ Password ไม่ถูกต้อง"}, status_code=status.HTTP_401_UNAUTHORIZED)
-
-    role = "superadmin" if username == settings.internal_superadmin_username else "user"
-    sid = create_session({"username": user.username, "role": role, "auth_type": "local", "user_id": user.id})
-    write_log(db, username, "login.success", "user", str(user.id), None)
-    response = RedirectResponse("/dashboard", status_code=302)
-    response.set_cookie(settings.session_cookie_name, sid, httponly=True, samesite=settings.session_cookie_samesite, path="/")
+        row=touch_fail(db, ip, settings.ip_ban_threshold)
+        token=new_token()
+        write_log(db, username, ip, 'login.local', 'failed', f'invalid credential fail_count={row.fail_count}')
+        response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':'Username หรือ Password ไม่ถูกต้อง','provider_login_enabled':settings.provider_login_enabled}, status_code=status.HTTP_401_UNAUTHORIZED)
+        response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
+        return response
+    clear_fail(db, ip)
+    sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
+    write_log(db, user.username, ip, 'login.local', 'success', None)
+    response=RedirectResponse('/dashboard', status_code=302)
+    response.set_cookie(settings.session_cookie_name, sid, httponly=True, samesite=settings.session_cookie_samesite, path='/')
     return response
 
+@router.get('/auth/provider/login')
+def provider_login():
+    return RedirectResponse(provider_login_url(), status_code=302)
 
-@router.get("/dashboard")
-def dashboard(request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("dashboard.html", _ctx(request, session, users=get_all(db), queries=list_queries(db), templates_list=list_templates(db)))
+@router.get('/api/v1/auth/provider/callback')
+async def provider_callback(request:Request, code:str, db:Session=Depends(get_db)):
+    ip=client_ip(request)
+    profile=await exchange_profile(code)
+    default_role=get_by_code(db, 'user')
+    user=upsert_provider_user(db, profile, default_role.id if default_role else None)
+    sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
+    write_log(db, user.username, ip, 'login.provider', 'success', f"provider_id={profile.get('provider_id')}")
+    response=RedirectResponse('/dashboard', status_code=302)
+    response.set_cookie(settings.session_cookie_name, sid, httponly=True, samesite=settings.session_cookie_samesite, path='/')
+    return response
 
+@router.post('/api/v1/notify/status/callback')
+async def notify_status_callback(request:Request, db:Session=Depends(get_db)):
+    payload = await request.json()
+    result = ingest_status_callback(db, payload)
+    return result
 
-@router.get("/users")
-def users_page(request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("users.html", _ctx(request, session, users=get_all(db)))
+@router.get('/dashboard')
+def dashboard(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    return templates.TemplateResponse('admin/dashboard.html', ctx(request, db, session, users=get_users(db), logs=get_access_logs(db), send_logs=get_send_logs(db), jobs=get_jobs(db), media_files=get_media(db), delivery_statuses=get_delivery_statuses(db), provider_profiles=get_provider_profiles(db)))
 
+@router.get('/reports')
+def reports_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    summary = {
+        "users": len(get_users(db)),
+        "access_logs": len(get_access_logs(db)),
+        "send_logs": len(get_send_logs(db)),
+        "delivery_statuses": len(get_delivery_statuses(db)),
+        "provider_profiles": len(get_provider_profiles(db)),
+        "media_files": len(get_media(db)),
+        "schedules": len(get_jobs(db)),
+        "approved_queries": len(get_queries(db)),
+        "templates": len(get_templates(db)),
+    }
+    return templates.TemplateResponse('admin/reports.html', ctx(request, db, session, summary=summary))
 
-@router.get("/queries")
-def queries_page(request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("queries.html", _ctx(request, session, queries=list_queries(db)))
+@router.get('/users')
+def users_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    return templates.TemplateResponse('admin/users.html', ctx(request, db, session, users=get_users(db)))
 
+@router.get('/profiles')
+def profiles_page(request:Request, q:str='', page:int=1, per_page:int=20, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    rows = [{
+        "id": x.id, "user_id": x.user_id, "account_id": x.account_id, "provider_id": x.provider_id,
+        "name_th": x.name_th, "organization_name": x.organization_name, "organization_code": x.organization_code,
+        "position_name": x.position_name, "license_no": x.license_no, "phone": x.phone, "email": x.email
+    } for x in get_provider_profiles(db)]
+    rows = _filter_rows(rows, q)
+    pager = paginate(rows, page=page, per_page=per_page)
+    return templates.TemplateResponse('admin/profiles.html', ctx(request, db, session, profile_rows=pager["items"], keyword=q, pager=pager))
 
-@router.post("/queries")
-def queries_create(request: Request, name: str = Form(...), sql_text: str = Form(...), db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    ok, _ = ensure_safe_select(sql_text)
+@router.get('/profiles/{profile_id}')
+def profile_detail_page(profile_id:int, request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    row = get_provider_profile_by_id(db, profile_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='profile not found')
+    return templates.TemplateResponse('admin/profile_detail.html', ctx(request, db, session, profile=row))
+
+@router.get('/profiles/export')
+def profiles_export(request:Request, q:str='', format:str='csv', db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    rows = [{
+        "id": x.id, "user_id": x.user_id, "account_id": x.account_id, "provider_id": x.provider_id,
+        "name_th": x.name_th, "organization_name": x.organization_name, "organization_code": x.organization_code,
+        "position_name": x.position_name, "license_no": x.license_no, "phone": x.phone, "email": x.email
+    } for x in get_provider_profiles(db)]
+    rows = _filter_rows(rows, q)
+    if format == 'xlsx':
+        data = to_xlsx_bytes(rows, sheet_name='provider_profiles')
+        return Response(content=data, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': 'attachment; filename=provider_profiles.xlsx'})
+    data = to_csv_bytes(rows)
+    return Response(content=data, media_type='text/csv; charset=utf-8', headers={'Content-Disposition': 'attachment; filename=provider_profiles.csv'})
+
+@router.get('/logs/access')
+def access_logs_page(request:Request, q:str='', page:int=1, per_page:int=20, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    access_rows = [{"actor": x.actor, "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
+    send_rows = [{"id": x.id, "actor": x.actor, "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
+    delivery_rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
+    access_rows = _filter_rows(access_rows, q)
+    send_rows = _filter_rows(send_rows, q)
+    delivery_rows = _filter_rows(delivery_rows, q)
+    access_pager = paginate(access_rows, page=page, per_page=per_page)
+    send_pager = paginate(send_rows, page=page, per_page=per_page)
+    delivery_pager = paginate(delivery_rows, page=page, per_page=per_page)
+    return templates.TemplateResponse('admin/access_logs.html', ctx(request, db, session, logs=access_pager["items"], send_logs=send_pager["items"], delivery_statuses=delivery_pager["items"], keyword=q, pager=access_pager))
+
+@router.get('/logs/export/{kind}')
+def logs_export(kind:str, request:Request, q:str='', format:str='csv', db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    if kind == 'access':
+        rows = [{"actor": x.actor, "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
+    elif kind == 'send':
+        rows = [{"id": x.id, "actor": x.actor, "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
+    else:
+        rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
+    rows = _filter_rows(rows, q)
+    if format == 'xlsx':
+        data = to_xlsx_bytes(rows, sheet_name=f'{kind}_logs')
+        return Response(content=data, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': f'attachment; filename={kind}_logs.xlsx'})
+    data = to_csv_bytes(rows)
+    return Response(content=data, media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename={kind}_logs.csv'})
+
+@router.get('/queries')
+def queries_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None))
+
+@router.post('/queries')
+def create_query_page(request:Request, name:str=Form(...), sql_text:str=Form(...), max_rows:int=Form(100), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    ok, reason = ensure_safe_select(sql_text)
     if ok:
-        item = create_query(db, name, sql_text)
-        write_log(db, session.get("username"), "query.create", "approved_query", str(item.id), name)
-    return RedirectResponse("/queries", status_code=302)
+        create_query(db, name, sql_text, max_rows)
+        write_log(db, session.get('username'), client_ip(request), 'query.create', 'success', name)
+        return RedirectResponse('/queries', status_code=302)
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=reason))
 
+@router.post('/queries/preview')
+def preview_query_page(request:Request, sql_text:str=Form(...), max_rows:int=Form(20), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    try:
+        preview = preview_query(sql_text, max_rows=max_rows)
+        write_log(db, session.get('username'), client_ip(request), 'query.preview', 'success', f"rows={preview['row_count']}")
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=preview, error=None))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'query.preview', 'failed', str(exc))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=str(exc)))
 
-@router.get("/queries/delete/{item_id}")
-def queries_delete(item_id: int, request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    delete_query(db, item_id)
-    write_log(db, session.get("username"), "query.delete", "approved_query", str(item_id), None)
-    return RedirectResponse("/queries", status_code=302)
+@router.get('/templates')
+def templates_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    flex_sample = '{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"สวัสดี {name}"},{"type":"text","text":"หน่วยงาน {organization_name}","size":"sm"}]}}'
+    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=None, media_files=get_media(db), flex_sample=flex_sample))
 
+@router.post('/templates')
+def create_template_page(request:Request, name:str=Form(...), template_type:str=Form(...), content:str=Form(...), alt_text:str=Form(''), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    create_template(db, name, template_type, content, alt_text or None)
+    write_log(db, session.get('username'), client_ip(request), 'template.create', 'success', name)
+    return RedirectResponse('/templates', status_code=302)
 
-@router.get("/templates")
-def templates_page(request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("templates.html", _ctx(request, session, templates_list=list_templates(db)))
+@router.post('/templates/render')
+def render_template_page(request:Request, content:str=Form(...), variables_json:str=Form('{}'), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    variables = json.loads(variables_json or '{}')
+    render_result = render_text_template(content, variables)
+    write_log(db, session.get('username'), client_ip(request), 'template.render', 'success', None)
+    flex_sample = '{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"สวัสดี {name}"},{"type":"text","text":"หน่วยงาน {organization_name}","size":"sm"}]}}'
+    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=render_result, media_files=get_media(db), flex_sample=flex_sample))
 
+@router.get('/media')
+def media_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    return templates.TemplateResponse('admin/media.html', ctx(request, db, session, media_files=get_media(db)))
 
-@router.post("/templates")
-def templates_create(request: Request, name: str = Form(...), content: str = Form(...), db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    item = create_template(db, name, content)
-    write_log(db, session.get("username"), "template.create", "message_template", str(item.id), name)
-    return RedirectResponse("/templates", status_code=302)
+@router.post('/media')
+async def media_upload(request:Request, image:UploadFile=File(...), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    content = await image.read()
+    if len(content) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail='File too large')
+    saved = save_resized_image(content, image.filename or 'upload.jpg', image.content_type)
+    create_media(db, image.filename or saved['stored_name'], saved['stored_name'], saved['mime_type'], saved['width'], saved['height'], saved['public_url'])
+    write_log(db, session.get('username'), client_ip(request), 'media.upload', 'success', saved['public_url'])
+    return RedirectResponse('/media', status_code=302)
 
+@router.get('/notify/test')
+def notify_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
-@router.get("/templates/delete/{item_id}")
-def templates_delete(item_id: int, request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    delete_template(db, item_id)
-    write_log(db, session.get("username"), "template.delete", "message_template", str(item_id), None)
-    return RedirectResponse("/templates", status_code=302)
+@router.post('/notify/test')
+async def notify_send(request:Request, message_text:str=Form(...), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    payload=[{"type":"text","text":message_text}]
+    result, _ = await send_with_log(db, session.get('username'), payload, 'manual text send')
+    write_log(db, session.get('username'), client_ip(request), 'notify.send', 'success', 'manual text send')
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
+@router.post('/notify/preview')
+def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    q = get_query_by_id(db, approved_query_id)
+    t = get_template_by_id(db, message_template_id)
+    data = preview_query(q.sql_text, max_rows=q.max_rows)
+    first_row = data['rows'][0] if data['rows'] else {}
+    payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, template_payload=payload, data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
-@router.get("/send")
-def send_page(request: Request):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("send.html", _ctx(request, session, result=None))
+@router.post('/notify/send-from-template')
+async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    q = get_query_by_id(db, approved_query_id)
+    t = get_template_by_id(db, message_template_id)
+    data = preview_query(q.sql_text, max_rows=q.max_rows)
+    messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in data['rows']]
+    result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
+    write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
 
+@router.get('/schedules')
+def schedules_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db)))
 
-@router.post("/send")
-def send_preview(request: Request, template: str = Form(...), name: str = Form("User"), db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    result = template.replace("{name}", name)
-    write_log(db, session.get("username"), "message.preview", "message", None, result)
-    return templates.TemplateResponse("send.html", _ctx(request, session, result=result))
+@router.post('/schedules')
+def schedules_create(request:Request, name:str=Form(...), schedule_type:str=Form(...), cron_value:str=Form(''), interval_minutes:int=Form(0), approved_query_id:int=Form(None), message_template_id:int=Form(None), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    next_run_at = parse_next_run(schedule_type, cron_value or None, interval_minutes or None, base=datetime.now())
+    create_job(db, name, schedule_type, cron_value or None, interval_minutes or None, approved_query_id, message_template_id, {}, next_run_at)
+    write_log(db, session.get('username'), client_ip(request), 'schedule.create', 'success', name)
+    return RedirectResponse('/schedules', status_code=302)
 
+@router.get('/rbac')
+def rbac_page(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    roles=get_roles(db); permissions=get_permissions(db); role_map={r.id:get_permission_codes_for_role(db,r.id) for r in roles}
+    return templates.TemplateResponse('admin/rbac.html', ctx(request, db, session, roles=roles, permissions=permissions, role_map=role_map))
 
-@router.get("/audit")
-def audit_page(request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if not session:
-        return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("audit.html", _ctx(request, session, logs=list_logs(db)))
+@router.post('/rbac/role/{role_id}')
+def rbac_update(role_id:int, request:Request, permission_ids:list[int]=Form(default=[]), db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if not session: return RedirectResponse('/login', status_code=302)
+    set_role_permissions(db, role_id, permission_ids)
+    write_log(db, session.get('username'), client_ip(request), 'rbac.update', 'success', f'role_id={role_id}')
+    return RedirectResponse('/rbac', status_code=302)
 
-
-@router.get("/logout")
-def logout(request: Request, db: Session = Depends(get_db)):
-    session = _session(request)
-    if session:
-        write_log(db, session.get("username"), "logout", "user", str(session.get("user_id")), None)
+@router.get('/logout')
+def logout(request:Request, db:Session=Depends(get_db)):
+    session=get_current_session(request)
+    if session: write_log(db, session.get('username'), client_ip(request), 'logout', 'success', None)
     destroy_session(request.cookies.get(settings.session_cookie_name))
-    response = RedirectResponse("/login", status_code=302)
-    response.delete_cookie(settings.session_cookie_name, path="/")
-    response.delete_cookie(settings.csrf_cookie_name, path="/")
+    response=RedirectResponse('/login', status_code=302)
+    response.delete_cookie(settings.session_cookie_name, path='/')
+    response.delete_cookie(settings.csrf_cookie_name, path='/')
     return response

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="p-6">
+  <h1 class="text-2xl font-bold">Schedules</h1>
+  <form method="post" action="/schedules" class="card mt-6">
+    <div><label>Name</label><input name="name" class="input"></div>
+    <div class="mt-3"><label>Schedule Type</label>
+      <select name="schedule_type" class="input">
+        <option value="once">once</option>
+        <option value="interval_minutes">interval_minutes</option>
+        <option value="daily">daily</option>
+        <option value="monthly">monthly</option>
+      </select>
+    </div>
+    <div class="mt-3"><label>Datetime / Rule</label><input name="cron_value" class="input" placeholder="2026-03-15 06:00 | 06:00 | 1 06:00"></div>
+    <div class="mt-3"><label>Interval Minutes</label><input name="interval_minutes" class="input" value="60"></div>
+    <div class="mt-3"><label>Approved Query</label>
+      <select name="approved_query_id" class="input">
+        {% for q in approved_queries %}<option value="{{ q.id }}">{{ q.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="mt-3"><label>Message Template</label>
+      <select name="message_template_id" class="input">
+        {% for t in message_templates %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn mt-4">Create Schedule</button>
+  </form>
+  <div class="card mt-6">
+    {% for j in jobs %}
+      <div class="item"><strong>{{ j.name }}</strong> | {{ j.schedule_type }} | next={{ j.next_run_at }} | last={{ j.last_run_at }}</div>
+    {% else %}<div class="muted">No schedules</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}

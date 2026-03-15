@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="p-6">
+  <h1 class="text-2xl font-bold">MOPH Notify / Production</h1>
+
+  <form method="post" action="/notify/test" class="card mt-6">
+    <div><label>Manual Message Text</label><input name="message_text" class="input" value="ทดสอบ notify"></div>
+    <button class="btn mt-4">Send Text Message</button>
+  </form>
+
+  <form method="post" action="/notify/preview" class="card mt-6">
+    <div><label>Approved Query</label>
+      <select name="approved_query_id" class="input">
+        {% for q in approved_queries %}<option value="{{ q.id }}">{{ q.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="mt-3"><label>Message Template</label>
+      <select name="message_template_id" class="input">
+        {% for t in message_templates %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn mt-4">Preview From Query + Template</button>
+  </form>
+
+  <form method="post" action="/notify/send-from-template" class="card mt-6">
+    <div><label>Approved Query</label>
+      <select name="approved_query_id" class="input">
+        {% for q in approved_queries %}<option value="{{ q.id }}">{{ q.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="mt-3"><label>Message Template</label>
+      <select name="message_template_id" class="input">
+        {% for t in message_templates %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn mt-4">Send From Query + Template</button>
+  </form>
+
+  <div class="card mt-6">
+    <div class="muted">Media URLs</div>
+    {% for m in media_files %}
+      <div class="item">{{ m.public_url }}</div>
+    {% else %}<div class="muted">No media uploaded</div>{% endfor %}
+  </div>
+
+  {% if template_payload %}
+  <div class="card mt-6"><div class="muted">Payload Preview</div><pre>{{ template_payload }}</pre></div>
+  {% endif %}
+  {% if data_rows %}
+  <div class="card mt-6"><div class="muted">Data Preview</div><pre>{{ data_rows }}</pre></div>
+  {% endif %}
+  {% if result %}
+  <div class="card mt-6"><div class="muted">Response</div><pre>{{ result }}</pre></div>
+  {% endif %}
+</div>
+{% endblock %}

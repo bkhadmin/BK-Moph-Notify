@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="p-6">
+  <h1 class="text-2xl font-bold">Message Templates</h1>
+  <form method="post" action="/templates" class="card mt-6">
+    <div><label>Name</label><input name="name" class="input"></div>
+    <div class="mt-3"><label>Template Type</label>
+      <select name="template_type" class="input">
+        <option value="text">text</option>
+        <option value="flex">flex</option>
+        <option value="image">image</option>
+      </select>
+    </div>
+    <div class="mt-3"><label>Alt Text</label><input name="alt_text" class="input"></div>
+    <div class="mt-3"><label>Content</label><textarea name="content" class="textarea" rows="10">สวัสดี {name}</textarea></div>
+    <button class="btn mt-4">Save Template</button>
+  </form>
+
+  <div class="card mt-6">
+    <div class="muted">Flex Starter</div>
+    <pre>{{ flex_sample }}</pre>
+  </div>
+
+  <div class="card mt-6">
+    <div class="muted">Media URLs</div>
+    {% for m in media_files %}
+      <div class="item">{{ m.public_url }}</div>
+    {% else %}<div class="muted">No media uploaded</div>{% endfor %}
+  </div>
+
+  <form method="post" action="/templates/render" class="card mt-6">
+    <div><label>Template Content</label><textarea name="content" class="textarea" rows="8">สวัสดี {name}</textarea></div>
+    <div class="mt-3"><label>Variables JSON</label><textarea name="variables_json" class="textarea" rows="4">{"name":"หมอพร้อม"}</textarea></div>
+    <button class="btn mt-4">Render Preview</button>
+  </form>
+  {% if render_result %}
+  <div class="card mt-6"><pre>{{ render_result }}</pre></div>
+  {% endif %}
+  <div class="card mt-6">
+    {% for t in message_templates %}
+      <div class="item"><strong>{{ t.name }}</strong> | {{ t.template_type }}</div>
+    {% else %}<div class="muted">No templates</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}

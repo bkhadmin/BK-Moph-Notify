@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block guest_body %}
+<div class="min-h-screen flex items-center justify-center">
+  <div class="w-full max-w-md rounded-2xl bg-white shadow-xl p-8">
+    <h1 class="text-2xl font-bold">BK-Moph Notify</h1>
+    <p class="muted mt-3">เข้าสู่ระบบผู้ดูแลและผู้ใช้งาน</p>
+    {% if error %}<div class="mt-4 card">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" class="mt-6 space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input name="username" placeholder="Username" class="input">
+      <input type="password" name="password" placeholder="Password" class="input">
+      <button type="submit" class="btn">Login</button>
+    </form>
+    <div class="mt-4">
+      <a href="/auth/provider/login">Login with Provider ID</a>
+      {% if not provider_login_enabled %}
+      <div class="muted mt-3">Provider login scaffold mode</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

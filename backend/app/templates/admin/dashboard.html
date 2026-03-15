@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="p-6">
+  <h1 class="text-2xl font-bold">Dashboard</h1>
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-4 mt-6">
+    <div class="card"><div class="muted">Users</div><div class="metric">{{ users|length }}</div></div>
+    <div class="card"><div class="muted">Access Logs</div><div class="metric">{{ logs|length }}</div></div>
+    <div class="card"><div class="muted">Send Logs</div><div class="metric">{{ send_logs|length }}</div></div>
+    <div class="card"><div class="muted">Schedules</div><div class="metric">{{ jobs|length }}</div></div>
+  </div>
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-3 mt-6">
+    <div class="card"><div class="muted">Media Files</div><div class="metric">{{ media_files|length }}</div></div>
+    <div class="card"><div class="muted">Delivery Status</div><div class="metric">{{ delivery_statuses|length }}</div></div>
+    <div class="card"><div class="muted">Provider Profiles</div><div class="metric">{{ provider_profiles|length }}</div></div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="p-6">
+  <h1 class="text-2xl font-bold">Provider Profile Detail</h1>
+  <div class="card mt-6">
+    <div class="item">Name: {{ profile.name_th or "-" }}</div>
+    <div class="item">Provider ID: {{ profile.provider_id or "-" }}</div>
+    <div class="item">Account ID: {{ profile.account_id or "-" }}</div>
+    <div class="item">Hash CID: {{ profile.hash_cid or "-" }}</div>
+    <div class="item">Organization: {{ profile.organization_name or "-" }}</div>
+    <div class="item">Organization Code: {{ profile.organization_code or "-" }}</div>
+    <div class="item">Position: {{ profile.position_name or "-" }}</div>
+    <div class="item">License No: {{ profile.license_no or "-" }}</div>
+    <div class="item">Phone: {{ profile.phone or "-" }}</div>
+    <div class="item">Email: {{ profile.email or "-" }}</div>
+  </div>
+  <div class="card mt-6">
+    <div class="muted">Raw JSON</div>
+    <pre>{{ profile.raw_json }}</pre>
+  </div>
+</div>
+{% endblock %}
