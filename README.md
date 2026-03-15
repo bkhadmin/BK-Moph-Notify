@@ -1,25 +1,14 @@
-# BK-Moph Notify Final
+# BK-Moph Notify – Module 7
 
-โปรเจกต์นี้เป็นชุดรวมใหม่ทั้งระบบในโครงสร้างเดียวกัน เพื่อให้เริ่มทดสอบใหม่จากศูนย์ได้ง่ายขึ้น
+สิ่งที่เพิ่ม
+- pagination helper สำหรับหน้ารายงาน
+- reports dashboard
+- export XLSX
+- provider profile detail page
+- logs export เป็น CSV/XLSX
+- profile export เป็น CSV/XLSX
 
-## สิ่งที่มี
-- FastAPI backend
-- Local login + session + CSRF
-- Dashboard / Users / Queries / Templates / Send / Audit pages
-- Query safety guard
-- Audit log พื้นฐาน
-- MySQL + Redis + Nginx + Docker Compose
-- DB bootstrap สำหรับ role + superadmin
-
-## วิธีเริ่ม
-```bash
-cp .env.example .env
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-เปิด:
-- http://SERVER_IP:8012/login
-
-## หมายเหตุ
-ชุดนี้เป็นเวอร์ชัน consolidated final candidate สำหรับรีเซ็ตและทดสอบใหม่แบบสะอาด
-โดยโครงสร้างไฟล์ทั้งหมดถูกทำให้สอดคล้องกันในชุดเดียว
+แนวทาง
+- ต่อจาก Module 6 แบบ additive
+- ไม่รื้อโครงหลัก
+- เน้นรายงานและการใช้งานจริงของ admin มากขึ้น
