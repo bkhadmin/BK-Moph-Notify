@@ -1,4 +1,32 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="p-6"><h1 class="text-2xl font-bold">Users</h1><div class="card mt-6">{% for u in users %}<div class="item"><strong>{{ u.username }}</strong> — {{ u.display_name or "-" }} — {{ u.auth_type }}</div>{% else %}<div class="muted">No users</div>{% endfor %}</div></div>
+<div class="page-header">
+  <h1 class="page-title">Users</h1>
+</div>
+<div class="card mt-6">
+  {% for u in users %}
+  <div class="item">
+    <div class="item-row">
+      <div>
+        <div><strong>{{ u.display_name or u.username }}</strong></div>
+        <div class="muted">username={{ u.username }} | auth={{ u.auth_type }} | provider_id={{ u.provider_id or "-" }}</div>
+      </div>
+      <form method="post" action="/users/{{ u.id }}/role" class="inline-form">
+        <select class="input slim" name="role_id">
+          {% for r in roles %}
+          <option value="{{ r.id }}" {% if u.role_id == r.id %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn">Save Role</button>
+      </form>
+    </div>
+    {% if u.profile_json %}
+    <details class="json-box mt-3">
+      <summary>Provider JSON</summary>
+      <pre>{{ pretty_json(u.profile_json) }}</pre>
+    </details>
+    {% endif %}
+  </div>
+  {% else %}<div class="muted">No users</div>{% endfor %}
+</div>
 {% endblock %}

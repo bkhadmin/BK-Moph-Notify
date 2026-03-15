@@ -6,8 +6,17 @@ from app.repositories.provider_profiles import upsert_profile
 def get_by_username(db:Session, username:str):
     return db.query(User).filter(User.username==username).first()
 
+def get_by_id(db:Session, user_id:int):
+    return db.query(User).filter(User.id==user_id).first()
+
 def get_all(db:Session):
     return db.query(User).order_by(User.id.desc()).all()
+
+def update_role(db:Session, user:User, role_id:int|None):
+    user.role_id = role_id
+    db.commit()
+    db.refresh(user)
+    return user
 
 def normalize_username(profile:dict)->str:
     return (

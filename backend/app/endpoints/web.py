@@ -9,13 +9,13 @@ from app.core.csrf import new_token,valid
 from app.core.session import create_session,get_session,destroy_session
 from app.core.security import verify_password
 from app.db.session import get_db
-from app.repositories.users import get_by_username,get_all as get_users,upsert_provider_user
+from app.repositories.users import get_by_username,get_by_id,get_all as get_users,upsert_provider_user,update_role
 from app.repositories.roles import get_by_code,get_all as get_roles
 from app.repositories.permissions import get_all as get_permissions
 from app.repositories.access_logs import write_log,get_all as get_access_logs
 from app.repositories.ip_bans import get_by_ip,touch_fail,clear_fail
 from app.repositories.role_permissions import set_role_permissions,get_permission_codes_for_role
-from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id
+from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id, update_item as update_query, delete_item as delete_query
 from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id
 from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
 from app.repositories.send_logs import get_all as get_send_logs
@@ -68,6 +68,14 @@ def require_menu(db:Session, session:dict, menu_code:str):
     if not allowed_menu(db, session.get('role_id'), menu_code):
         raise HTTPException(status_code=403, detail='forbidden')
 
+def pretty_json(value):
+    try:
+        if isinstance(value, str):
+            value = json.loads(value)
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except Exception:
+        return str(value)
+
 def ctx(request:Request, db:Session, session:dict|None, **extra):
     role_id=session.get('role_id') if session else None
     menus={
@@ -81,7 +89,7 @@ def ctx(request:Request, db:Session, session:dict|None, **extra):
         'schedules':allowed_menu(db,role_id,'schedules'),
         'media':allowed_menu(db,role_id,'media'),
     }
-    data={'request':request,'session':session,'menus':menus}
+    data={'request':request,'session':session,'menus':menus,'pretty_json':pretty_json}
     data.update(extra)
     return data
 
@@ -162,8 +170,7 @@ def dashboard(request:Request, db:Session=Depends(get_db)):
 @router.get('/system/connections')
 async def system_connections(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
-    logs_menu = allowed_menu(db, session.get('role_id'), 'logs')
-    if not logs_menu:
+    if not allowed_menu(db, session.get('role_id'), 'logs'):
         raise HTTPException(status_code=403, detail='forbidden')
     try:
         hosxp_result = test_connection()
@@ -208,7 +215,18 @@ def reports_page(request:Request, db:Session=Depends(get_db)):
 def users_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'users')
-    return templates.TemplateResponse('admin/users.html', ctx(request, db, session, users=get_users(db)))
+    return templates.TemplateResponse('admin/users.html', ctx(request, db, session, users=get_users(db), roles=get_roles(db)))
+
+@router.post('/users/{user_id}/role')
+def users_update_role(user_id:int, request:Request, role_id:int=Form(...), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'users')
+    user = get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail='user not found')
+    update_role(db, user, role_id)
+    write_log(db, session.get('username'), client_ip(request), 'user.role.update', 'success', f'user_id={user_id}, role_id={role_id}')
+    return RedirectResponse('/users', status_code=302)
 
 @router.get('/profiles')
 def profiles_page(request:Request, q:str='', page:int=1, per_page:int=20, db:Session=Depends(get_db)):
@@ -298,10 +316,11 @@ def logs_export(kind:str, request:Request, q:str='', format:str='csv', db:Sessio
     return Response(content=data, media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename={kind}_logs.csv'})
 
 @router.get('/queries')
-def queries_page(request:Request, db:Session=Depends(get_db)):
+def queries_page(request:Request, edit_id:int|None=None, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'queries')
-    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test=None))
+    edit_row = get_query_by_id(db, edit_id) if edit_id else None
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test=None, edit_row=edit_row))
 
 @router.post('/queries')
 def create_query_page(request:Request, name:str=Form(...), sql_text:str=Form(...), max_rows:int=Form(100), db:Session=Depends(get_db)):
@@ -312,7 +331,32 @@ def create_query_page(request:Request, name:str=Form(...), sql_text:str=Form(...
         create_query(db, name, sql_text, max_rows)
         write_log(db, session.get('username'), client_ip(request), 'query.create', 'success', name)
         return RedirectResponse('/queries', status_code=302)
-    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=reason, hosxp_test=None))
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=reason, hosxp_test=None, edit_row=None))
+
+@router.post('/queries/{query_id}/update')
+def update_query_page(query_id:int, request:Request, name:str=Form(...), sql_text:str=Form(...), max_rows:int=Form(100), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'queries')
+    row = get_query_by_id(db, query_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='query not found')
+    ok, reason = ensure_safe_select(sql_text)
+    if ok:
+        update_query(db, row, name, sql_text, max_rows)
+        write_log(db, session.get('username'), client_ip(request), 'query.update', 'success', f'query_id={query_id}')
+        return RedirectResponse('/queries', status_code=302)
+    return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=reason, hosxp_test=None, edit_row=row))
+
+@router.post('/queries/{query_id}/delete')
+def delete_query_page(query_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'queries')
+    row = get_query_by_id(db, query_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='query not found')
+    delete_query(db, row)
+    write_log(db, session.get('username'), client_ip(request), 'query.delete', 'success', f'query_id={query_id}')
+    return RedirectResponse('/queries', status_code=302)
 
 @router.post('/queries/preview')
 def preview_query_page(request:Request, sql_text:str=Form(...), max_rows:int=Form(20), db:Session=Depends(get_db)):
@@ -321,10 +365,10 @@ def preview_query_page(request:Request, sql_text:str=Form(...), max_rows:int=For
     try:
         preview = preview_query(sql_text, max_rows=max_rows)
         write_log(db, session.get('username'), client_ip(request), 'query.preview', 'success', f"rows={preview['row_count']}")
-        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=preview, error=None, hosxp_test=None))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=preview, error=None, hosxp_test=None, edit_row=None))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'query.preview', 'failed', str(exc))
-        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=str(exc), hosxp_test=None))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=str(exc), hosxp_test=None, edit_row=None))
 
 @router.post('/queries/test-connection')
 def query_test_connection(request:Request, db:Session=Depends(get_db)):
@@ -333,10 +377,10 @@ def query_test_connection(request:Request, db:Session=Depends(get_db)):
     try:
         result = test_connection()
         write_log(db, session.get('username'), client_ip(request), 'query.test_connection', 'success', json.dumps(result, ensure_ascii=False))
-        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test=result))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test=result, edit_row=None))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'query.test_connection', 'failed', str(exc))
-        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test={"status":"failed","detail":str(exc)}))
+        return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test={"status":"failed","detail":str(exc)}, edit_row=None))
 
 @router.get('/templates')
 def templates_page(request:Request, db:Session=Depends(get_db)):
@@ -382,10 +426,17 @@ async def media_upload(request:Request, image:UploadFile=File(...), db:Session=D
     return RedirectResponse('/media', status_code=302)
 
 @router.get('/notify/test')
-def notify_page(request:Request, db:Session=Depends(get_db)):
+def notify_page(request:Request, flex_json:str|None=None, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'notify')
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    default_flex = flex_json or json.dumps({
+        "type":"bubble",
+        "body":{"type":"box","layout":"vertical","contents":[
+            {"type":"text","text":"หัวข้อ", "weight":"bold", "size":"lg"},
+            {"type":"text","text":"รายละเอียดข้อความ", "wrap":True, "margin":"md"}
+        ]}
+    }, ensure_ascii=False, indent=2)
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=default_flex))
 
 @router.post('/notify/test')
 async def notify_send(request:Request, message_text:str=Form(...), db:Session=Depends(get_db)):
@@ -395,10 +446,52 @@ async def notify_send(request:Request, message_text:str=Form(...), db:Session=De
     try:
         result, _ = await send_with_log(db, session.get('username'), payload, 'manual text send')
         write_log(db, session.get('username'), client_ip(request), 'notify.send', 'success', 'manual text send')
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send', 'failed', str(exc))
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
+
+@router.post('/notify/send-flex')
+async def notify_send_flex(request:Request, flex_json:str=Form(...), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    try:
+        bubble = json.loads(flex_json)
+        payload=[{"type":"flex","altText":"Flex Message Preview","contents":bubble}]
+        result, _ = await send_with_log(db, session.get('username'), payload, 'manual flex send')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.flex', 'success', 'manual flex send')
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.flex', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+
+@router.post('/notify/flex-builder')
+def notify_flex_builder(
+    request:Request,
+    title:str=Form('หัวข้อ'),
+    subtitle:str=Form(''),
+    body_text:str=Form('รายละเอียด'),
+    button_label:str=Form(''),
+    button_url:str=Form(''),
+    hero_image_url:str=Form(''),
+    db:Session=Depends(get_db)
+):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    bubble = {"type":"bubble","body":{"type":"box","layout":"vertical","contents":[]}}
+    contents = bubble["body"]["contents"]
+    if title:
+        contents.append({"type":"text","text":title,"weight":"bold","size":"lg","wrap":True})
+    if subtitle:
+        contents.append({"type":"text","text":subtitle,"size":"sm","color":"#64748b","wrap":True,"margin":"md"})
+    if body_text:
+        contents.append({"type":"text","text":body_text,"wrap":True,"margin":"md"})
+    if hero_image_url:
+        bubble["hero"] = {"type":"image","url":hero_image_url,"size":"full","aspectMode":"cover","aspectRatio":"20:13"}
+    if button_label and button_url:
+        bubble["footer"] = {"type":"box","layout":"vertical","contents":[{"type":"button","style":"primary","action":{"type":"uri","label":button_label,"uri":button_url}}]}
+    flex_json = json.dumps(bubble, ensure_ascii=False, indent=2)
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
 
 @router.post('/notify/preview')
 def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
@@ -409,7 +502,7 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     first_row = data['rows'][0] if data['rows'] else {}
     payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=payload, data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=payload, data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
 
 @router.post('/notify/send-from-template')
 async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
@@ -422,10 +515,10 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     try:
         result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db)))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=messages[:3], data_rows=data['rows'][:10], approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
 
 @router.get('/schedules')
 def schedules_page(request:Request, db:Session=Depends(get_db)):
@@ -456,68 +549,6 @@ def rbac_update(role_id:int, request:Request, permission_ids:list[int]=Form(defa
     set_role_permissions(db, role_id, permission_ids)
     write_log(db, session.get('username'), client_ip(request), 'rbac.update', 'success', f'role_id={role_id}')
     return RedirectResponse('/rbac', status_code=302)
-
-
-@router.get('/flex-builder')
-def flex_builder_page(request:Request, db:Session=Depends(get_db)):
-    session=require_session(request)
-    require_menu(db, session, 'templates')
-    sample = {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [
-                {"type": "text", "text": "หัวข้อ", "weight": "bold", "size": "lg"},
-                {"type": "text", "text": "รายละเอียด", "wrap": True, "margin": "md"}
-            ]
-        }
-    }
-    return templates.TemplateResponse('admin/flex_builder.html', ctx(request, db, session, flex_json=json.dumps(sample, ensure_ascii=False, indent=2), flex_error=None))
-
-@router.post('/flex-builder')
-def flex_builder_generate(
-    request:Request,
-    title:str=Form('หัวข้อ'),
-    subtitle:str=Form(''),
-    body_text:str=Form('รายละเอียด'),
-    button_label:str=Form(''),
-    button_url:str=Form(''),
-    hero_image_url:str=Form(''),
-    db:Session=Depends(get_db)
-):
-    session=require_session(request)
-    require_menu(db, session, 'templates')
-    bubble = {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": []
-        }
-    }
-    body_contents = bubble["body"]["contents"]
-    if title:
-        body_contents.append({"type": "text", "text": title, "weight": "bold", "size": "lg", "wrap": True})
-    if subtitle:
-        body_contents.append({"type": "text", "text": subtitle, "size": "sm", "color": "#64748b", "wrap": True, "margin": "md"})
-    if body_text:
-        body_contents.append({"type": "text", "text": body_text, "wrap": True, "margin": "md"})
-    if hero_image_url:
-        bubble["hero"] = {"type": "image", "url": hero_image_url, "size": "full", "aspectMode": "cover", "aspectRatio": "20:13"}
-    if button_label and button_url:
-        bubble["footer"] = {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [{
-                "type": "button",
-                "style": "primary",
-                "action": {"type": "uri", "label": button_label, "uri": button_url}
-            }]
-        }
-    flex_json = json.dumps(bubble, ensure_ascii=False, indent=2)
-    return templates.TemplateResponse('admin/flex_builder.html', ctx(request, db, session, flex_json=flex_json, flex_error=None))
-
 
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):

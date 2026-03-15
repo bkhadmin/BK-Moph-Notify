@@ -18,6 +18,27 @@
     <button class="btn mt-4">Send Text</button>
   </form>
 
+  <form method="post" action="/notify/flex-builder" class="card">
+    <h3>Flex Builder</h3>
+    <div class="mt-3"><label>Title</label><input class="input" name="title" value="หัวข้อ"></div>
+    <div class="mt-3"><label>Subtitle</label><input class="input" name="subtitle" value=""></div>
+    <div class="mt-3"><label>Body Text</label><textarea class="textarea" name="body_text" rows="6">รายละเอียดข้อความ รองรับตัวแปรเช่น {name}</textarea></div>
+    <div class="mt-3"><label>Hero Image URL</label><input class="input" name="hero_image_url" value=""></div>
+    <div class="mt-3"><label>Button Label</label><input class="input" name="button_label" value=""></div>
+    <div class="mt-3"><label>Button URL</label><input class="input" name="button_url" value=""></div>
+    <button class="btn mt-4">Generate Flex JSON</button>
+  </form>
+</div>
+
+<div class="card mt-6">
+  <h3>Flex JSON / Preview Source</h3>
+  <form method="post" action="/notify/send-flex">
+    <textarea class="textarea" name="flex_json" rows="18">{{ flex_json or '' }}</textarea>
+    <button class="btn mt-4">Send Flex</button>
+  </form>
+</div>
+
+<div class="grid-2 mt-6">
   <form method="post" action="/notify/preview" class="card">
     <h3>Preview จาก Query + Template</h3>
     <div class="mt-3">
@@ -38,12 +59,10 @@
     </div>
     <button class="btn mt-4">Preview</button>
   </form>
-</div>
 
-<form method="post" action="/notify/send-from-template" class="card mt-6">
-  <h3>Send จาก Query + Template</h3>
-  <div class="grid-2 mt-3">
-    <div>
+  <form method="post" action="/notify/send-from-template" class="card">
+    <h3>Send จาก Query + Template</h3>
+    <div class="mt-3">
       <label>Approved Query</label>
       <select name="approved_query_id" class="input">
         {% for q in approved_queries %}
@@ -51,7 +70,7 @@
         {% endfor %}
       </select>
     </div>
-    <div>
+    <div class="mt-3">
       <label>Template</label>
       <select name="message_template_id" class="input">
         {% for t in message_templates %}
@@ -59,28 +78,28 @@
         {% endfor %}
       </select>
     </div>
-  </div>
-  <button class="btn mt-4">Send from Template</button>
-</form>
+    <button class="btn mt-4">Send from Template</button>
+  </form>
+</div>
 
 {% if template_payload %}
 <div class="card mt-6">
   <div class="muted">Template Payload Preview</div>
-  <pre>{{ template_payload }}</pre>
+  <div class="json-box mt-3"><pre>{{ pretty_json(template_payload) }}</pre></div>
 </div>
 {% endif %}
 
 {% if data_rows %}
 <div class="card mt-6">
   <div class="muted">Data Preview</div>
-  <pre>{{ data_rows }}</pre>
+  <div class="json-box mt-3"><pre>{{ pretty_json(data_rows) }}</pre></div>
 </div>
 {% endif %}
 
 {% if result %}
 <div class="card mt-6">
   <div class="muted">Send Result</div>
-  <pre>{{ result }}</pre>
+  <div class="json-box mt-3"><pre>{{ pretty_json(result) }}</pre></div>
 </div>
 {% endif %}
 {% endblock %}
