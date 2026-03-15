@@ -2,7 +2,7 @@
 {% block body %}
 <div class="page-header">
   <h1 class="page-title">MOPH Notify Test</h1>
-  <div class="muted">Module 18: validate flex + send minimal flex + safer payload flow</div>
+  <div class="muted">Module 19: flex builder with style controls + save as template</div>
 </div>
 
 {% if send_error %}
@@ -51,8 +51,39 @@
 แผนกที่นัด {department}
 จำนวนผู้ป่วยที่นัด {total_appointment} ราย</textarea></div>
     <div class="mt-3"><label>Hero Image URL</label><input class="input" name="hero_image_url" value=""></div>
-    <div class="mt-3"><label>Button Label</label><input class="input" name="button_label" value=""></div>
-    <div class="mt-3"><label>Button URL</label><input class="input" name="button_url" value=""></div>
+    <div class="grid-2 mt-3">
+      <div><label>Button Label</label><input class="input" name="button_label" value=""></div>
+      <div><label>Button URL</label><input class="input" name="button_url" value=""></div>
+    </div>
+
+    <div class="grid-2 mt-3">
+      <div><label>Title Color</label><input class="input" type="color" name="title_color" value="#0f172a"></div>
+      <div><label>Subtitle Color</label><input class="input" type="color" name="subtitle_color" value="#64748b"></div>
+    </div>
+    <div class="grid-2 mt-3">
+      <div><label>Body Color</label><input class="input" type="color" name="body_color" value="#334155"></div>
+      <div><label>Accent Color</label><input class="input" type="color" name="accent_color" value="#2563eb"></div>
+    </div>
+    <div class="grid-2 mt-3">
+      <div>
+        <label>Title Size</label>
+        <select class="input" name="title_size">
+          <option>sm</option><option selected>lg</option><option>xl</option><option>xxl</option><option>3xl</option><option>4xl</option>
+        </select>
+      </div>
+      <div>
+        <label>Body Size</label>
+        <select class="input" name="body_size">
+          <option>sm</option><option selected>md</option><option>lg</option><option>xl</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card-lite mt-4">
+      <label><input type="checkbox" name="save_as_template" value="1"> Save as template</label>
+      <div class="mt-3"><label>Template Name</label><input class="input" name="template_name" value=""></div>
+    </div>
+
     <button class="btn mt-4">Generate Flex JSON</button>
   </form>
 </div>

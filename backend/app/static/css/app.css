@@ -139,3 +139,11 @@ pre{white-space:pre-wrap;word-break:break-word;overflow:auto;margin:0;font-famil
   padding:12px 14px;
   font-weight:700;
 }
+
+
+.card-lite{
+  background:#f8fafc;
+  border:1px dashed #cbd5e1;
+  border-radius:14px;
+  padding:14px;
+}

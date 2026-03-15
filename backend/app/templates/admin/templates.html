@@ -1,45 +1,67 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="p-6">
-  <h1 class="text-2xl font-bold">Message Templates</h1>
-  <form method="post" action="/templates" class="card mt-6">
-    <div><label>Name</label><input name="name" class="input"></div>
-    <div class="mt-3"><label>Template Type</label>
-      <select name="template_type" class="input">
-        <option value="text">text</option>
-        <option value="flex">flex</option>
-        <option value="image">image</option>
+<div class="page-header">
+  <h1 class="page-title">Templates</h1>
+</div>
+
+<div class="grid-2 mt-6">
+  <form method="post" action="{% if edit_row %}/templates/{{ edit_row.id }}/update{% else %}/templates{% endif %}" class="card">
+    <h3>{% if edit_row %}แก้ไข Template{% else %}สร้าง Template{% endif %}</h3>
+    <div class="mt-3"><label>Name</label><input class="input" name="name" value="{{ edit_row.name if edit_row else '' }}"></div>
+    <div class="mt-3">
+      <label>Type</label>
+      <select class="input" name="template_type">
+        {% for tp in ['text','image','flex'] %}
+        <option value="{{ tp }}" {% if edit_row and edit_row.template_type == tp %}selected{% endif %}>{{ tp }}</option>
+        {% endfor %}
       </select>
     </div>
-    <div class="mt-3"><label>Alt Text</label><input name="alt_text" class="input"></div>
-    <div class="mt-3"><label>Content</label><textarea name="content" class="textarea" rows="10">สวัสดี {name}</textarea></div>
-    <button class="btn mt-4">Save Template</button>
+    <div class="mt-3"><label>Alt Text</label><input class="input" name="alt_text" value="{{ edit_row.alt_text if edit_row else '' }}"></div>
+    <div class="mt-3"><label>Content</label><textarea class="textarea" name="content" rows="16">{{ edit_row.content if edit_row else flex_sample }}</textarea></div>
+    <div class="page-actions mt-4">
+      <button class="btn">{% if edit_row %}Update{% else %}Save{% endif %}</button>
+      {% if edit_row %}<a href="/templates" class="btn secondary">Cancel</a>{% endif %}
+    </div>
   </form>
 
-  <div class="card mt-6">
-    <div class="muted">Flex Starter</div>
-    <pre>{{ flex_sample }}</pre>
-  </div>
-
-  <div class="card mt-6">
-    <div class="muted">Media URLs</div>
-    {% for m in media_files %}
-      <div class="item">{{ m.public_url }}</div>
-    {% else %}<div class="muted">No media uploaded</div>{% endfor %}
-  </div>
-
-  <form method="post" action="/templates/render" class="card mt-6">
-    <div><label>Template Content</label><textarea name="content" class="textarea" rows="8">สวัสดี {name}</textarea></div>
-    <div class="mt-3"><label>Variables JSON</label><textarea name="variables_json" class="textarea" rows="4">{"name":"หมอพร้อม"}</textarea></div>
-    <button class="btn mt-4">Render Preview</button>
+  <form method="post" action="/templates/render" class="card">
+    <h3>Render Preview</h3>
+    <div class="mt-3"><label>Content</label><textarea class="textarea" name="content" rows="12">{{ edit_row.content if edit_row else flex_sample }}</textarea></div>
+    <div class="mt-3"><label>Variables JSON</label><textarea class="textarea" name="variables_json" rows="8">{"name":"สมชาย","organization_name":"โรงพยาบาลตัวอย่าง","clinic_name":"ตรวจโรคทั่วไป","department":"061-จุดซักประวัติ","total_appointment":66,"sent_at":"15/03/2026 19:30 น."}</textarea></div>
+    <button class="btn mt-4">Render</button>
   </form>
-  {% if render_result %}
-  <div class="card mt-6"><pre>{{ render_result }}</pre></div>
-  {% endif %}
-  <div class="card mt-6">
-    {% for t in message_templates %}
-      <div class="item"><strong>{{ t.name }}</strong> | {{ t.template_type }}</div>
-    {% else %}<div class="muted">No templates</div>{% endfor %}
+</div>
+
+{% if render_result %}
+<div class="card mt-6">
+  <div class="muted">Render Result</div>
+  <div class="json-box mt-3"><pre>{{ pretty_json(render_result) }}</pre></div>
+</div>
+{% endif %}
+
+<div class="card mt-6">
+  <h3>Template List</h3>
+  {% for t in message_templates %}
+  <div class="item">
+    <div class="item-row">
+      <div>
+        <strong>{{ t.name }}</strong>
+        <div class="muted">type={{ t.template_type }} | alt={{ t.alt_text or '-' }}</div>
+      </div>
+      <div class="page-actions">
+        <a href="/templates?edit_id={{ t.id }}" class="btn secondary">Edit</a>
+        <form method="post" action="/templates/{{ t.id }}/delete" onsubmit="return confirm('Delete this template?')">
+          <button class="btn danger">Delete</button>
+        </form>
+      </div>
+    </div>
+    <details class="json-box mt-3">
+      <summary>Content</summary>
+      <pre>{{ t.content }}</pre>
+    </details>
   </div>
+  {% else %}
+  <div class="muted">No templates</div>
+  {% endfor %}
 </div>
 {% endblock %}

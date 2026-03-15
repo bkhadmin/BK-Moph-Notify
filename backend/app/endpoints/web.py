@@ -16,7 +16,7 @@ from app.repositories.access_logs import write_log,get_all as get_access_logs
 from app.repositories.ip_bans import get_by_ip,touch_fail,clear_fail
 from app.repositories.role_permissions import set_role_permissions,get_permission_codes_for_role
 from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id, update_item as update_query, delete_item as delete_query
-from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id
+from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template
 from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
 from app.repositories.send_logs import get_all as get_send_logs
 from app.repositories.media_files import create_item as create_media, get_all as get_media
@@ -39,6 +39,7 @@ from app.services.chart_data import counter_from_rows
 from app.services.moph_notify import health_check as moph_notify_health_check
 from app.services.flex_transform import as_flex_message_payload, detect_mode_and_build
 from app.services.flex_validator import validate_flex_message_payload, build_minimal_flex_payload
+from app.services.flex_builder_service import build_bubble, template_json_from_bubble
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -392,11 +393,12 @@ def query_test_connection(request:Request, db:Session=Depends(get_db)):
         return templates.TemplateResponse('admin/queries.html', ctx(request, db, session, queries=get_queries(db), preview=None, error=None, hosxp_test={"status":"failed","detail":str(exc)}, edit_row=None))
 
 @router.get('/templates')
-def templates_page(request:Request, db:Session=Depends(get_db)):
+def templates_page(request:Request, edit_id:int|None=None, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'templates')
     flex_sample = '{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"สวัสดี {name}"},{"type":"text","text":"หน่วยงาน {organization_name}","size":"sm"}]}}'
-    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=None, media_files=get_media(db), flex_sample=flex_sample))
+    edit_row = get_template_by_id(db, edit_id) if edit_id else None
+    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=None, media_files=get_media(db), flex_sample=flex_sample, edit_row=edit_row))
 
 @router.post('/templates')
 def create_template_page(request:Request, name:str=Form(...), template_type:str=Form(...), content:str=Form(...), alt_text:str=Form(''), db:Session=Depends(get_db)):
@@ -404,6 +406,28 @@ def create_template_page(request:Request, name:str=Form(...), template_type:str=
     require_menu(db, session, 'templates')
     create_template(db, name, template_type, content, alt_text or None)
     write_log(db, session.get('username'), client_ip(request), 'template.create', 'success', name)
+    return RedirectResponse('/templates', status_code=302)
+
+@router.post('/templates/{template_id}/update')
+def update_template_page(template_id:int, request:Request, name:str=Form(...), template_type:str=Form(...), content:str=Form(...), alt_text:str=Form(''), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    row = get_template_by_id(db, template_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='template not found')
+    update_template(db, row, name, template_type, content, alt_text or None)
+    write_log(db, session.get('username'), client_ip(request), 'template.update', 'success', f'template_id={template_id}')
+    return RedirectResponse('/templates', status_code=302)
+
+@router.post('/templates/{template_id}/delete')
+def delete_template_page(template_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    row = get_template_by_id(db, template_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='template not found')
+    delete_template(db, row)
+    write_log(db, session.get('username'), client_ip(request), 'template.delete', 'success', f'template_id={template_id}')
     return RedirectResponse('/templates', status_code=302)
 
 @router.post('/templates/render')
@@ -487,75 +511,59 @@ def notify_flex_builder(
     button_label:str=Form(''),
     button_url:str=Form(''),
     hero_image_url:str=Form(''),
+    title_color:str=Form('#0f172a'),
+    subtitle_color:str=Form('#64748b'),
+    body_color:str=Form('#334155'),
+    accent_color:str=Form('#2563eb'),
+    title_size:str=Form('lg'),
+    body_size:str=Form('md'),
+    save_as_template:str=Form('0'),
+    template_name:str=Form(''),
     db:Session=Depends(get_db)
 ):
     session=require_session(request)
     require_menu(db, session, 'notify')
+
     if preset_mode == 'top5':
         bubble = {
             "type":"bubble",
             "body":{"type":"box","layout":"vertical","contents":[
-                {"type":"text","text": title or "Top 5 นัดหมายวันนี้","weight":"bold","size":"lg","wrap":True},
-                {"type":"text","text": subtitle or "ส่งเมื่อ {sent_at}","size":"sm","color":"#64748b","wrap":True,"margin":"md"},
+                {"type":"text","text": title or "Top 5 นัดหมายวันนี้","weight":"bold","size":"lg","wrap":True, "color": title_color},
+                {"type":"text","text": subtitle or "ส่งเมื่อ {sent_at}","size":"sm","color":subtitle_color,"wrap":True,"margin":"md"},
                 {"type":"separator","margin":"md"},
-                {"type":"text","text":"1. {row1_clinic_name} - {row1_total_appointment} ราย","wrap":True,"margin":"md"},
-                {"type":"text","text":"2. {row2_clinic_name} - {row2_total_appointment} ราย","wrap":True,"margin":"sm"},
-                {"type":"text","text":"3. {row3_clinic_name} - {row3_total_appointment} ราย","wrap":True,"margin":"sm"},
-                {"type":"text","text":"4. {row4_clinic_name} - {row4_total_appointment} ราย","wrap":True,"margin":"sm"},
-                {"type":"text","text":"5. {row5_clinic_name} - {row5_total_appointment} ราย","wrap":True,"margin":"sm"}
+                {"type":"text","text":"1. {row1_clinic_name} - {row1_total_appointment} ราย","wrap":True,"margin":"md","color":body_color},
+                {"type":"text","text":"2. {row2_clinic_name} - {row2_total_appointment} ราย","wrap":True,"margin":"sm","color":body_color},
+                {"type":"text","text":"3. {row3_clinic_name} - {row3_total_appointment} ราย","wrap":True,"margin":"sm","color":body_color},
+                {"type":"text","text":"4. {row4_clinic_name} - {row4_total_appointment} ราย","wrap":True,"margin":"sm","color":body_color},
+                {"type":"text","text":"5. {row5_clinic_name} - {row5_total_appointment} ราย","wrap":True,"margin":"sm","color":body_color}
             ]}
         }
+        contents = bubble
     else:
-        bubble = {"type":"bubble","body":{"type":"box","layout":"vertical","contents":[]}}
-        contents = bubble["body"]["contents"]
-        if title:
-            contents.append({"type":"text","text":title,"weight":"bold","size":"lg","wrap":True})
-        if subtitle:
-            contents.append({"type":"text","text":subtitle,"size":"sm","color":"#64748b","wrap":True,"margin":"md"})
-        if body_text:
-            contents.append({"type":"text","text":body_text,"wrap":True,"margin":"md"})
+        bubble = build_bubble(
+            title=title, subtitle=subtitle, body_text=body_text, hero_image_url=hero_image_url,
+            button_label=button_label, button_url=button_url,
+            title_color=title_color, subtitle_color=subtitle_color, body_color=body_color,
+            accent_color=accent_color, title_size=title_size, body_size=body_size
+        )
         if preset_mode == 'summary':
-            contents.append({"type":"separator","margin":"md"})
-            contents.append({"type":"text","text":"BK-Moph Notify","size":"xs","color":"#94a3b8","align":"center","margin":"md"})
-        if hero_image_url:
-            bubble["hero"] = {"type":"image","url":hero_image_url,"size":"full","aspectMode":"cover","aspectRatio":"20:13"}
-        if button_label and button_url:
-            bubble["footer"] = {"type":"box","layout":"vertical","contents":[{"type":"button","style":"primary","action":{"type":"uri","label":button_label,"uri":button_url}}]}
-    if preset_mode == 'carousel':
-        flex = {"type":"carousel","contents":[bubble]}
-        flex_json = json.dumps(flex, ensure_ascii=False, indent=2)
-    else:
-        flex_json = json.dumps(bubble, ensure_ascii=False, indent=2)
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+            bubble["body"]["contents"].append({"type":"separator","margin":"md"})
+            bubble["body"]["contents"].append({"type":"text","text":"BK-Moph Notify","size":"xs","color":"#94a3b8","align":"center","margin":"md"})
+        contents = {"type":"carousel","contents":[bubble]} if preset_mode == 'carousel' else bubble
 
-@router.post('/notify/preview')
-def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
-    session=require_session(request)
-    require_menu(db, session, 'notify')
-    q = get_query_by_id(db, approved_query_id)
-    t = get_template_by_id(db, message_template_id)
-    data = preview_query(q.sql_text, max_rows=q.max_rows)
-    first_row = data['rows'][0] if data['rows'] else {}
-    payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=payload, data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']), approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
+    flex_json = json.dumps(contents, ensure_ascii=False, indent=2)
 
-@router.post('/notify/send-from-template')
-async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
-    session=require_session(request)
-    require_menu(db, session, 'notify')
-    q = get_query_by_id(db, approved_query_id)
-    t = get_template_by_id(db, message_template_id)
-    data = preview_query(q.sql_text, max_rows=q.max_rows)
-    messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in data['rows']]
-    try:
-        result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
-        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']), approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
-    except Exception as exc:
-        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']), approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
+    if save_as_template == '1' and (template_name or '').strip():
+        create_template(db, template_name.strip(), 'flex', flex_json, 'BK-Moph Notify Flex Message')
+        write_log(db, session.get('username'), client_ip(request), 'template.create.from_flex_builder', 'success', template_name.strip())
 
-
+    return templates.TemplateResponse('admin/notify_test.html', ctx(
+        request, db, session,
+        result=None, send_error=None, validation_errors=None,
+        template_payload=None, data_rows=None, query_visual_rows=None,
+        approved_queries=get_queries(db), message_templates=get_templates(db),
+        media_files=get_media(db), flex_json=flex_json
+    ))
 
 @router.post('/notify/validate-flex')
 def notify_validate_flex(request:Request, flex_json:str=Form(...), db:Session=Depends(get_db)):
