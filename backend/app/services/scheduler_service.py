@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
 import re
+from croniter import croniter
 
 def _normalize_time_only(value:str) -> str:
     value = (value or "").strip().replace(".", ":")
@@ -47,6 +48,13 @@ def parse_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|
     if st == "cron":
         if not cron_value:
             raise ValueError("กรุณาระบุ cron expression")
-        return base + timedelta(hours=1)
+        return croniter(cron_value, base).get_next(datetime)
 
     raise ValueError("schedule_type ไม่ถูกต้อง")
+
+def compute_following_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|None, last_base:datetime|None=None):
+    base = last_base or datetime.now()
+    st = (schedule_type or "").strip().lower()
+    if st == "once":
+        return None
+    return parse_next_run(schedule_type, cron_value, interval_minutes, base=base)

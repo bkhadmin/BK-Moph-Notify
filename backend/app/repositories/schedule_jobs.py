@@ -4,6 +4,13 @@ from app.models.schedule_job import ScheduleJob
 def get_all(db: Session):
     return db.query(ScheduleJob).order_by(ScheduleJob.id.desc()).all()
 
+def get_due_jobs(db: Session, now):
+    return db.query(ScheduleJob).filter(
+        ScheduleJob.is_active == 'Y',
+        ScheduleJob.next_run_at != None,
+        ScheduleJob.next_run_at <= now
+    ).order_by(ScheduleJob.next_run_at.asc()).all()
+
 def get_by_id(db: Session, item_id: int):
     return db.query(ScheduleJob).filter(ScheduleJob.id == item_id).first()
 

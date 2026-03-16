@@ -18,6 +18,7 @@ from app.repositories.role_permissions import set_role_permissions,get_permissio
 from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id, update_item as update_query, delete_item as delete_query
 from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template, clone_item as clone_template
 from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
+from app.repositories.schedule_job_logs import get_recent as get_schedule_logs
 from app.repositories.send_logs import get_all as get_send_logs
 from app.repositories.media_files import create_item as create_media, get_all as get_media
 from app.repositories.delivery_statuses import get_all as get_delivery_statuses
@@ -832,6 +833,16 @@ async def import_templates_page(request:Request, import_payload:str=Form(''), db
     result = import_templates_json(db, import_payload)
     write_log(db, session.get('username'), client_ip(request), 'template.import', 'success', str(result))
     return RedirectResponse('/templates', status_code=302)
+
+@router.get('/scheduler-monitor')
+def scheduler_monitor_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'schedules')
+    return templates.TemplateResponse('admin/scheduler_monitor.html', ctx(
+        request, db, session,
+        jobs=get_jobs(db),
+        schedule_logs=get_schedule_logs(db, 100)
+    ))
 
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):
