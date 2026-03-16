@@ -1,14 +1,18 @@
-# Module 16
-
 สิ่งที่เพิ่ม
-- หน้า MOPH Notify รองรับ preset mode:
-  - Single Bubble
-  - Summary Bubble
-  - Top 5 Dashboard
-  - Carousel Item
-- Preview จาก query จริงแบบ visual card
-- รวม workflow ให้ใช้ query + template + flex preview ได้ในหน้าเดียว
+- Templates แก้ไข / ลบ ได้
+- Flex builder บันทึกเป็น template ได้ทันที
+- Flex builder มีตัวเลือก
+  - ปรับสีหัวข้อ
+  - ปรับสี subtitle
+  - ปรับสีข้อความ
+  - ปรับสีปุ่ม
+  - ปรับขนาดตัวอักษร title/body
+- ลดความผิดพลาดจากการสร้าง flex เองด้วย builder ที่ควบคุม schema มากขึ้น
 
-สิ่งที่แก้
-- คงส่วน template/query เดิมจาก Module 15
-- เพิ่ม visual preview สำหรับผล query จริง ไม่ใช่แค่ JSON
+แนวทางใช้งาน
+1. ใช้ Flex Builder
+2. ปรับสี / ขนาดข้อความ
+3. Generate Flex JSON
+4. Validate Flex
+5. ถ้าถูกใจให้ติ๊ก Save as template
+6. นำ template ไปใช้กับ Query + Send From Template
