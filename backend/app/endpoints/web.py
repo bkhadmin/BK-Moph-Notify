@@ -41,6 +41,7 @@ from app.services.flex_transform import as_flex_message_payload, detect_mode_and
 from app.services.flex_validator import validate_flex_message_payload, build_minimal_flex_payload
 from app.services.flex_builder_service import build_bubble, template_json_from_bubble
 from app.services.template_porter import export_templates_json, import_templates_json
+from app.services.flex_template_merger import build_flex_payload_from_template_rows
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -676,14 +677,18 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
     if not q or not t:
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
-    first_row = data['rows'][0] if data['rows'] else {}
-    payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
+    rows = data['rows']
+    if t.template_type == 'flex':
+        payload = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
+    else:
+        first_row = rows[0] if rows else {}
+        payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
     return templates.TemplateResponse('admin/notify_test.html', ctx(
         request, db, session,
         result=None, send_error=None, validation_errors=None,
-        template_payload=payload, data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']),
+        template_payload=payload, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
         approved_queries=get_queries(db), message_templates=get_templates(db),
-        media_files=get_media(db), flex_json=None
+        media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2) if isinstance(payload, list) and payload and payload[0].get("type") == "flex" else None
     ))
 
 @router.post('/notify/send-from-template')
@@ -695,25 +700,29 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     if not q or not t:
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
-    messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in data['rows']]
+    rows = data['rows']
+    if t.template_type == 'flex':
+        messages = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
+    else:
+        messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows]
     try:
         result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
-        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(rows)}')
         return templates.TemplateResponse('admin/notify_test.html', ctx(
             request, db, session,
             result=result, send_error=None, validation_errors=None,
-            template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']),
+            template_payload=messages, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=None
+            media_files=get_media(db), flex_json=json.dumps(messages[0]["contents"], ensure_ascii=False, indent=2) if isinstance(messages, list) and messages and messages[0].get("type") == "flex" else None
         ))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
         return templates.TemplateResponse('admin/notify_test.html', ctx(
             request, db, session,
             result=None, send_error=str(exc), validation_errors=None,
-            template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']),
+            template_payload=messages, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=None
+            media_files=get_media(db), flex_json=json.dumps(messages[0]["contents"], ensure_ascii=False, indent=2) if isinstance(messages, list) and messages and messages[0].get("type") == "flex" else None
         ))
 
 
