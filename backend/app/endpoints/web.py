@@ -16,7 +16,7 @@ from app.repositories.access_logs import write_log,get_all as get_access_logs
 from app.repositories.ip_bans import get_by_ip,touch_fail,clear_fail
 from app.repositories.role_permissions import set_role_permissions,get_permission_codes_for_role
 from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id, update_item as update_query, delete_item as delete_query
-from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template
+from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template, clone_item as clone_template
 from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
 from app.repositories.send_logs import get_all as get_send_logs
 from app.repositories.media_files import create_item as create_media, get_all as get_media
@@ -40,6 +40,7 @@ from app.services.moph_notify import health_check as moph_notify_health_check
 from app.services.flex_transform import as_flex_message_payload, detect_mode_and_build
 from app.services.flex_validator import validate_flex_message_payload, build_minimal_flex_payload
 from app.services.flex_builder_service import build_bubble, template_json_from_bubble
+from app.services.template_porter import export_templates_json, import_templates_json
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -438,7 +439,7 @@ def render_template_page(request:Request, content:str=Form(...), variables_json:
     render_result = render_text_template(content, variables)
     write_log(db, session.get('username'), client_ip(request), 'template.render', 'success', None)
     flex_sample = '{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"สวัสดี {name}"},{"type":"text","text":"หน่วยงาน {organization_name}","size":"sm"}]}}'
-    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=render_result, media_files=get_media(db), flex_sample=flex_sample))
+    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=render_result, media_files=get_media(db), flex_sample=flex_sample, edit_row=None))
 
 @router.get('/media')
 def media_page(request:Request, db:Session=Depends(get_db)):
@@ -665,6 +666,57 @@ async def notify_auto_flex_send(
             media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
         ))
 
+
+@router.post('/notify/preview')
+def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    q = get_query_by_id(db, approved_query_id)
+    t = get_template_by_id(db, message_template_id)
+    if not q or not t:
+        raise HTTPException(status_code=404, detail='query or template not found')
+    data = preview_query(q.sql_text, max_rows=q.max_rows)
+    first_row = data['rows'][0] if data['rows'] else {}
+    payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
+    return templates.TemplateResponse('admin/notify_test.html', ctx(
+        request, db, session,
+        result=None, send_error=None, validation_errors=None,
+        template_payload=payload, data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']),
+        approved_queries=get_queries(db), message_templates=get_templates(db),
+        media_files=get_media(db), flex_json=None
+    ))
+
+@router.post('/notify/send-from-template')
+async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    q = get_query_by_id(db, approved_query_id)
+    t = get_template_by_id(db, message_template_id)
+    if not q or not t:
+        raise HTTPException(status_code=404, detail='query or template not found')
+    data = preview_query(q.sql_text, max_rows=q.max_rows)
+    messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in data['rows']]
+    try:
+        result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(messages)}')
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=result, send_error=None, validation_errors=None,
+            template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']),
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=None
+        ))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=None, send_error=str(exc), validation_errors=None,
+            template_payload=messages[:3], data_rows=data['rows'][:10], query_visual_rows=_query_visual_rows(data['rows']),
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=None
+        ))
+
+
 @router.get('/schedules')
 def schedules_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
@@ -694,6 +746,33 @@ def rbac_update(role_id:int, request:Request, permission_ids:list[int]=Form(defa
     set_role_permissions(db, role_id, permission_ids)
     write_log(db, session.get('username'), client_ip(request), 'rbac.update', 'success', f'role_id={role_id}')
     return RedirectResponse('/rbac', status_code=302)
+
+
+@router.post('/templates/{template_id}/clone')
+def clone_template_page(template_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    row = get_template_by_id(db, template_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='template not found')
+    clone_template(db, row)
+    write_log(db, session.get('username'), client_ip(request), 'template.clone', 'success', f'template_id={template_id}')
+    return RedirectResponse('/templates', status_code=302)
+
+@router.get('/templates/export')
+def export_templates_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    payload = export_templates_json(get_templates(db))
+    return Response(content=payload, media_type='application/json; charset=utf-8', headers={'Content-Disposition':'attachment; filename=message_templates.json'})
+
+@router.post('/templates/import')
+async def import_templates_page(request:Request, import_payload:str=Form(''), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    result = import_templates_json(db, import_payload)
+    write_log(db, session.get('username'), client_ip(request), 'template.import', 'success', str(result))
+    return RedirectResponse('/templates', status_code=302)
 
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):

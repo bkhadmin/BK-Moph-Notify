@@ -2,6 +2,9 @@
 {% block body %}
 <div class="page-header">
   <h1 class="page-title">Templates</h1>
+  <div class="page-actions">
+    <a href="/templates/export" class="btn secondary">Export JSON</a>
+  </div>
 </div>
 
 <div class="grid-2 mt-6">
@@ -17,19 +20,40 @@
       </select>
     </div>
     <div class="mt-3"><label>Alt Text</label><input class="input" name="alt_text" value="{{ edit_row.alt_text if edit_row else '' }}"></div>
-    <div class="mt-3"><label>Content</label><textarea class="textarea" name="content" rows="16">{{ edit_row.content if edit_row else flex_sample }}</textarea></div>
+    <div class="mt-3"><label>Content</label><textarea id="template-content" class="textarea" name="content" rows="16">{{ edit_row.content if edit_row else flex_sample }}</textarea></div>
     <div class="page-actions mt-4">
       <button class="btn">{% if edit_row %}Update{% else %}Save{% endif %}</button>
       {% if edit_row %}<a href="/templates" class="btn secondary">Cancel</a>{% endif %}
     </div>
   </form>
 
-  <form method="post" action="/templates/render" class="card">
-    <h3>Render Preview</h3>
-    <div class="mt-3"><label>Content</label><textarea class="textarea" name="content" rows="12">{{ edit_row.content if edit_row else flex_sample }}</textarea></div>
-    <div class="mt-3"><label>Variables JSON</label><textarea class="textarea" name="variables_json" rows="8">{"name":"สมชาย","organization_name":"โรงพยาบาลตัวอย่าง","clinic_name":"ตรวจโรคทั่วไป","department":"061-จุดซักประวัติ","total_appointment":66,"sent_at":"15/03/2026 19:30 น."}</textarea></div>
-    <button class="btn mt-4">Render</button>
-  </form>
+  <div class="card">
+    <h3>Import Templates</h3>
+    <form method="post" action="/templates/import">
+      <div class="mt-3"><label>Import JSON</label><textarea class="textarea" name="import_payload" rows="12">[
+  {
+    "name": "Imported Flex",
+    "template_type": "flex",
+    "content": "{\"type\":\"bubble\",\"body\":{\"type\":\"box\",\"layout\":\"vertical\",\"contents\":[{\"type\":\"text\",\"text\":\"สวัสดี\",\"weight\":\"bold\"}]}}",
+    "alt_text": "Imported Flex"
+  }
+]</textarea></div>
+      <button class="btn mt-4">Import</button>
+    </form>
+
+    <div class="section-title mt-6">Media Picker</div>
+    <div class="media-grid">
+      {% for m in media_files %}
+        <button type="button" class="media-pick-btn" onclick="insertMediaUrl('{{ m.public_url }}')">
+          <div class="media-name">{{ m.original_name }}</div>
+          <div class="muted">{{ m.width }}x{{ m.height }}</div>
+          <div class="media-url">{{ m.public_url }}</div>
+        </button>
+      {% else %}
+        <div class="muted">No media</div>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
 {% if render_result %}
@@ -50,6 +74,9 @@
       </div>
       <div class="page-actions">
         <a href="/templates?edit_id={{ t.id }}" class="btn secondary">Edit</a>
+        <form method="post" action="/templates/{{ t.id }}/clone">
+          <button class="btn secondary">Clone</button>
+        </form>
         <form method="post" action="/templates/{{ t.id }}/delete" onsubmit="return confirm('Delete this template?')">
           <button class="btn danger">Delete</button>
         </form>
@@ -64,4 +91,16 @@
   <div class="muted">No templates</div>
   {% endfor %}
 </div>
+
+<script>
+function insertMediaUrl(url){
+  const ta = document.getElementById('template-content');
+  const start = ta.selectionStart || 0;
+  const end = ta.selectionEnd || 0;
+  const val = ta.value || '';
+  ta.value = val.slice(0, start) + url + val.slice(end);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = start + url.length;
+}
+</script>
 {% endblock %}

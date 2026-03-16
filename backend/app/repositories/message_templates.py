@@ -21,3 +21,16 @@ def update_item(db:Session, row:MessageTemplate, name:str, template_type:str, co
 def delete_item(db:Session, row:MessageTemplate):
     db.delete(row)
     db.commit()
+
+def clone_item(db:Session, row:MessageTemplate, new_name:str|None=None):
+    cloned = MessageTemplate(
+        name=new_name or f"{row.name} (Copy)",
+        template_type=row.template_type,
+        content=row.content,
+        alt_text=row.alt_text,
+        is_active=True,
+    )
+    db.add(cloned)
+    db.commit()
+    db.refresh(cloned)
+    return cloned
