@@ -84,3 +84,18 @@ services:
 volumes:
   mysql_data:
   app_uploads:
+
+  scheduler:
+    build: ./backend
+    command: python -m app.worker_scheduler
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      MOPH_NOTIFY_BASE_URL: ${MOPH_NOTIFY_BASE_URL}
+      MOPH_NOTIFY_SEND_PATH: ${MOPH_NOTIFY_SEND_PATH}
+      MOPH_NOTIFY_CLIENT_KEY: ${MOPH_NOTIFY_CLIENT_KEY}
+      MOPH_NOTIFY_SECRET_KEY: ${MOPH_NOTIFY_SECRET_KEY}
