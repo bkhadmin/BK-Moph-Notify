@@ -739,7 +739,7 @@ def schedules_create(
     name:str=Form(...),
     schedule_type:str=Form(...),
     cron_value:str=Form(''),
-    interval_minutes:int|None=Form(None),
+    interval_minutes:str=Form(''),
     approved_query_id:int|None=Form(None),
     message_template_id:int|None=Form(None),
     is_active:str=Form('Y'),
@@ -749,13 +749,16 @@ def schedules_create(
     require_menu(db, session, 'schedules')
     try:
         normalized_cron = (cron_value or '').strip()
-        next_run_at = parse_next_run(schedule_type, normalized_cron or None, interval_minutes or None, base=datetime.now())
+        normalized_interval = None
+        if str(interval_minutes or '').strip() != '':
+            normalized_interval = int(str(interval_minutes).strip())
+        next_run_at = parse_next_run(schedule_type, normalized_cron or None, normalized_interval, base=datetime.now())
         create_job(
             db,
             name=name.strip(),
             schedule_type=schedule_type,
             cron_value=normalized_cron or None,
-            interval_minutes=interval_minutes,
+            interval_minutes=normalized_interval,
             approved_query_id=approved_query_id,
             message_template_id=message_template_id,
             next_run_at=next_run_at,
@@ -778,7 +781,7 @@ def schedules_create(
                     'name': name,
                     'schedule_type': schedule_type,
                     'cron_value': cron_value,
-                    'interval_minutes': interval_minutes or '',
+                    'interval_minutes': str(interval_minutes or '').strip(),
                     'approved_query_id': approved_query_id or '',
                     'message_template_id': message_template_id or '',
                     'is_active': is_active,

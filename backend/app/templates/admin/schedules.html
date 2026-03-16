@@ -145,10 +145,21 @@ function prepareScheduleSubmit(){
   const shared = document.getElementById('shared-cron-value')
   const dailyField = document.getElementById('daily-time-input')
   const cronField = document.getElementById('cron-expression-input')
+  const intervalField = document.querySelector('input[name="interval_minutes"]')
+
+  shared.disabled = false
+  intervalField.disabled = false
+
   if(type === 'daily'){
     shared.value = dailyField.value
+    intervalField.value = ''
   }else if(type === 'cron'){
     shared.value = cronField.value
+    intervalField.value = ''
+  }else if(type === 'interval'){
+    shared.value = ''
+  }else{
+    intervalField.value = ''
   }
 }
 toggleScheduleFields()
