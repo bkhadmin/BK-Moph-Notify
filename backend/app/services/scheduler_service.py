@@ -1,34 +1,52 @@
+from __future__ import annotations
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
+import re
 
-def parse_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|None, base:datetime|None=None):
-    now = base or datetime.now()
-    if schedule_type == 'once':
+def _normalize_time_only(value:str) -> str:
+    value = (value or "").strip().replace(".", ":")
+    if re.fullmatch(r"\d{1,2}:\d{2}", value):
+        return value
+    raise ValueError("รูปแบบเวลาไม่ถูกต้อง ใช้เช่น 17:00 หรือ 17.00")
+
+def _parse_once(value:str) -> datetime:
+    value = (value or "").strip().replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            pass
+    raise ValueError("กำหนดการแบบครั้งเดียว ต้องใช้วันเวลาเต็ม เช่น 2026-03-17 17:00 หรือ 2026-03-17T17:00:00")
+
+def _parse_daily(value:str, base:datetime) -> datetime:
+    hhmm = _normalize_time_only(value)
+    hh, mm = [int(x) for x in hhmm.split(":")]
+    run_at = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if run_at <= base:
+        run_at += timedelta(days=1)
+    return run_at
+
+def parse_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|None, base:datetime|None=None) -> datetime|None:
+    base = base or datetime.now()
+    st = (schedule_type or "").strip().lower()
+
+    if st == "once":
         if not cron_value:
-            return None
-        return datetime.fromisoformat(cron_value.replace('T',' '))
-    if schedule_type == 'interval_minutes':
-        return now + timedelta(minutes=max(interval_minutes or 1, 1))
-    if schedule_type == 'daily':
-        # cron_value = HH:MM
-        hh, mm = (cron_value or '06:00').split(':')
-        candidate = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
-        if candidate <= now:
-            candidate += timedelta(days=1)
-        return candidate
-    if schedule_type == 'monthly':
-        # cron_value = DD HH:MM e.g. 1 06:00
-        day_str, time_str = (cron_value or '1 06:00').split(' ', 1)
-        hh, mm = time_str.split(':')
-        day = int(day_str)
-        candidate = now.replace(day=min(day,28), hour=int(hh), minute=int(mm), second=0, microsecond=0)
-        if candidate <= now:
-            candidate = candidate + relativedelta(months=1)
-            candidate = candidate.replace(day=min(day,28))
-        return candidate
-    return None
+            raise ValueError("กรุณาระบุวันเวลาแบบครั้งเดียว")
+        return _parse_once(cron_value)
 
-def next_after_run(schedule_type:str, cron_value:str|None, interval_minutes:int|None, last_run_at:datetime):
-    if schedule_type == 'once':
-        return None
-    return parse_next_run(schedule_type, cron_value, interval_minutes, base=last_run_at)
+    if st == "daily":
+        if not cron_value:
+            raise ValueError("กรุณาระบุเวลา เช่น 17:00")
+        return _parse_daily(cron_value, base)
+
+    if st == "interval":
+        if not interval_minutes or int(interval_minutes) <= 0:
+            raise ValueError("interval_minutes ต้องมากกว่า 0")
+        return base + timedelta(minutes=int(interval_minutes))
+
+    if st == "cron":
+        if not cron_value:
+            raise ValueError("กรุณาระบุ cron expression")
+        return base + timedelta(hours=1)
+
+    raise ValueError("schedule_type ไม่ถูกต้อง")

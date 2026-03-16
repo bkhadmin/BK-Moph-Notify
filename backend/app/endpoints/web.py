@@ -730,16 +730,63 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
 def schedules_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'schedules')
-    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db)))
+    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db), form_error=None, form_values={}))
+
 
 @router.post('/schedules')
-def schedules_create(request:Request, name:str=Form(...), schedule_type:str=Form(...), cron_value:str=Form(''), interval_minutes:int=Form(0), approved_query_id:int=Form(None), message_template_id:int=Form(None), db:Session=Depends(get_db)):
+def schedules_create(
+    request:Request,
+    name:str=Form(...),
+    schedule_type:str=Form(...),
+    cron_value:str=Form(''),
+    interval_minutes:int|None=Form(None),
+    approved_query_id:int|None=Form(None),
+    message_template_id:int|None=Form(None),
+    is_active:str=Form('Y'),
+    db:Session=Depends(get_db)
+):
     session=require_session(request)
     require_menu(db, session, 'schedules')
-    next_run_at = parse_next_run(schedule_type, cron_value or None, interval_minutes or None, base=datetime.now())
-    create_job(db, name, schedule_type, cron_value or None, interval_minutes or None, approved_query_id, message_template_id, {}, next_run_at)
-    write_log(db, session.get('username'), client_ip(request), 'schedule.create', 'success', name)
-    return RedirectResponse('/schedules', status_code=302)
+    try:
+        normalized_cron = (cron_value or '').strip()
+        next_run_at = parse_next_run(schedule_type, normalized_cron or None, interval_minutes or None, base=datetime.now())
+        create_job(
+            db,
+            name=name.strip(),
+            schedule_type=schedule_type,
+            cron_value=normalized_cron or None,
+            interval_minutes=interval_minutes,
+            approved_query_id=approved_query_id,
+            message_template_id=message_template_id,
+            next_run_at=next_run_at,
+            is_active=is_active,
+            payload_json=None,
+        )
+        write_log(db, session.get('username'), client_ip(request), 'schedule.create', 'success', f'name={name}, type={schedule_type}')
+        return RedirectResponse('/schedules', status_code=302)
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'schedule.create', 'failed', str(exc))
+        return templates.TemplateResponse(
+            'admin/schedules.html',
+            ctx(
+                request, db, session,
+                jobs=get_jobs(db),
+                approved_queries=get_queries(db),
+                message_templates=get_templates(db),
+                form_error=str(exc),
+                form_values={
+                    'name': name,
+                    'schedule_type': schedule_type,
+                    'cron_value': cron_value,
+                    'interval_minutes': interval_minutes or '',
+                    'approved_query_id': approved_query_id or '',
+                    'message_template_id': message_template_id or '',
+                    'is_active': is_active,
+                }
+            ),
+            status_code=400
+        )
+
 
 @router.get('/rbac')
 def rbac_page(request:Request, db:Session=Depends(get_db)):
