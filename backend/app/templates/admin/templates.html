@@ -14,7 +14,7 @@
     <div class="mt-3">
       <label>Type</label>
       <select class="input" name="template_type">
-        {% for tp in ['text','image','flex'] %}
+        {% for tp in ['text','image','flex','flex_full_list','flex_top5','flex_carousel'] %}
         <option value="{{ tp }}" {% if edit_row and edit_row.template_type == tp %}selected{% endif %}>{{ tp }}</option>
         {% endfor %}
       </select>

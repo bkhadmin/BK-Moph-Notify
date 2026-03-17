@@ -44,6 +44,7 @@ from app.services.flex_validator import validate_flex_message_payload, build_min
 from app.services.flex_builder_service import build_bubble, template_json_from_bubble
 from app.services.template_porter import export_templates_json, import_templates_json
 from app.services.flex_template_merger import build_flex_payload_from_template_rows
+from app.services.dynamic_template_renderer import build_dynamic_template_payload
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -680,7 +681,10 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     rows = data['rows']
-    if t.template_type == 'flex':
+    dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
+    if dynamic_payload is not None:
+        payload = dynamic_payload
+    elif t.template_type == 'flex':
         payload = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
     else:
         first_row = rows[0] if rows else {}
@@ -703,7 +707,10 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     rows = data['rows']
-    if t.template_type == 'flex':
+    dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
+    if dynamic_payload is not None:
+        messages = dynamic_payload
+    elif t.template_type == 'flex':
         messages = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
     else:
         messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows]

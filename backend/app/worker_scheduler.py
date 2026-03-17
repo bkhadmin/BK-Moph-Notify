@@ -11,6 +11,7 @@ from app.repositories.message_templates import get_by_id as get_template
 from app.repositories.approved_queries import get_by_id as get_query
 from app.services.hosxp_query import preview_query
 from app.services.flex_template_merger import build_flex_payload_from_template_rows
+from app.services.dynamic_template_renderer import build_dynamic_template_payload
 from app.services.moph_notify import send_messages
 from app.services.scheduler_service import compute_following_next_run
 from app.services.template_render import build_message_payload
@@ -33,7 +34,10 @@ def _build_messages(db, job):
         raise ValueError("approved query หรือ message template ไม่พบ")
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     rows = data.get("rows") or []
-    if t.template_type == "flex":
+    dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
+    if dynamic_payload is not None:
+        messages = dynamic_payload
+    elif t.template_type == "flex":
         messages = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
     else:
         messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows[:10]]
