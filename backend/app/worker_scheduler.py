@@ -2,7 +2,9 @@ import asyncio
 import json
 import time
 from datetime import datetime, timedelta
-from app.db.session import SessionLocal
+
+from app.db.base import Base
+from app.db.session import SessionLocal, engine
 from app.repositories.schedule_jobs import get_due_jobs, get_by_id, update_item
 from app.repositories.schedule_job_logs import create_item as create_job_log
 from app.repositories.message_templates import get_by_id as get_template
@@ -14,6 +16,9 @@ from app.services.scheduler_service import compute_following_next_run
 from app.services.template_render import build_message_payload
 
 POLL_SECONDS = 30
+
+def ensure_tables():
+    Base.metadata.create_all(bind=engine)
 
 def _job_config(job):
     try:
@@ -37,14 +42,20 @@ def _build_messages(db, job):
 def _send_messages_sync(messages):
     return asyncio.run(send_messages(messages))
 
+def _safe_create_log(db, **kwargs):
+    try:
+        create_job_log(db, **kwargs)
+    except Exception:
+        db.rollback()
+
 def _finalize_success(db, job, now, rows, messages, result):
-    create_job_log(
+    _safe_create_log(
         db,
         schedule_job_id=job.id,
         status="success",
         rows_returned=len(rows),
         sent_count=len(messages),
-        detail_json=json.dumps(result, ensure_ascii=False)
+        detail_json=json.dumps(result, ensure_ascii=False),
     )
     cfg = _job_config(job)
     cfg["retry_count"] = 0
@@ -54,16 +65,17 @@ def _finalize_success(db, job, now, rows, messages, result):
         job,
         last_run_at=now,
         next_run_at=next_run,
-        is_active='N' if job.schedule_type == 'once' else job.is_active,
-        payload_json=json.dumps(cfg, ensure_ascii=False)
+        is_active="N" if job.schedule_type == "once" else job.is_active,
+        payload_json=json.dumps(cfg, ensure_ascii=False),
     )
 
 def _finalize_failure(db, job, now, rows, messages, exc):
+    db.rollback()
     cfg = _job_config(job)
     retry_limit = int(cfg.get("retry_limit", 3))
     retry_count = int(cfg.get("retry_count", 0)) + 1
     cfg["retry_count"] = retry_count
-    create_job_log(
+    _safe_create_log(
         db,
         schedule_job_id=job.id,
         status="failed",
@@ -77,14 +89,14 @@ def _finalize_failure(db, job, now, rows, messages, exc):
         update_item(db, job, last_run_at=now, next_run_at=next_run, payload_json=json.dumps(cfg, ensure_ascii=False))
     else:
         cfg["retry_count"] = 0
-        next_run = compute_following_next_run(job.schedule_type, job.cron_value, job.interval_minutes, last_base=now) if job.schedule_type != 'once' else None
+        next_run = compute_following_next_run(job.schedule_type, job.cron_value, job.interval_minutes, last_base=now) if job.schedule_type != "once" else None
         update_item(
             db,
             job,
             last_run_at=now,
             next_run_at=next_run,
-            is_active='N' if job.schedule_type == 'once' else job.is_active,
-            payload_json=json.dumps(cfg, ensure_ascii=False)
+            is_active="N" if job.schedule_type == "once" else job.is_active,
+            payload_json=json.dumps(cfg, ensure_ascii=False),
         )
 
 def execute_job(db, job):
@@ -101,6 +113,7 @@ def execute_job(db, job):
         return {"status": "failed", "error": str(exc), "rows": len(rows), "sent": len(messages)}
 
 def run_job_now(job_id: int):
+    ensure_tables()
     db = SessionLocal()
     try:
         job = get_by_id(db, job_id)
@@ -111,6 +124,7 @@ def run_job_now(job_id: int):
         db.close()
 
 def run_once():
+    ensure_tables()
     db = SessionLocal()
     try:
         now = datetime.now()
@@ -121,6 +135,7 @@ def run_once():
         db.close()
 
 def main():
+    ensure_tables()
     while True:
         run_once()
         time.sleep(POLL_SECONDS)

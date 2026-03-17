@@ -57,4 +57,14 @@ def compute_following_next_run(schedule_type:str, cron_value:str|None, interval_
     st = (schedule_type or "").strip().lower()
     if st == "once":
         return None
-    return parse_next_run(schedule_type, cron_value, interval_minutes, base=base)
+    if st == "daily":
+        return base + timedelta(days=1)
+    if st == "interval":
+        if not interval_minutes or int(interval_minutes) <= 0:
+            return None
+        return base + timedelta(minutes=int(interval_minutes))
+    if st == "cron":
+        if not cron_value:
+            return None
+        return croniter(cron_value, base).get_next(datetime)
+    return None

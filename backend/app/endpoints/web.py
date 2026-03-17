@@ -17,7 +17,7 @@ from app.repositories.ip_bans import get_by_ip,touch_fail,clear_fail
 from app.repositories.role_permissions import set_role_permissions,get_permission_codes_for_role
 from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id, update_item as update_query, delete_item as delete_query
 from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template, clone_item as clone_template
-from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
+from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job, get_by_id as get_job_by_id, update_item as update_job, delete_item as delete_job
 from app.repositories.schedule_job_logs import get_recent as get_schedule_logs
 from app.worker_scheduler import run_job_now
 from app.repositories.send_logs import get_all as get_send_logs
@@ -732,12 +732,32 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
 def schedules_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'schedules')
-    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db), form_error=None, form_values={}))
+    edit_id = request.query_params.get('edit_id')
+    edit_job = get_job_by_id(db, int(edit_id)) if edit_id else None
+    form_values = {}
+    if edit_job:
+        try:
+            cfg = json.loads(edit_job.payload_json or '{}')
+        except Exception:
+            cfg = {}
+        form_values = {
+            'id': edit_job.id,
+            'name': edit_job.name,
+            'schedule_type': edit_job.schedule_type,
+            'cron_value': edit_job.cron_value or '',
+            'interval_minutes': str(edit_job.interval_minutes or ''),
+            'approved_query_id': edit_job.approved_query_id or '',
+            'message_template_id': edit_job.message_template_id or '',
+            'is_active': edit_job.is_active,
+            'retry_limit': str(cfg.get('retry_limit', 3)),
+        }
+    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db), form_error=None, form_values=form_values))
 
 
 @router.post('/schedules')
 def schedules_create(
     request:Request,
+    schedule_id:str=Form(''),
     name:str=Form(...),
     schedule_type:str=Form(...),
     cron_value:str=Form(''),
@@ -756,19 +776,37 @@ def schedules_create(
         if str(interval_minutes or '').strip() != '':
             normalized_interval = int(str(interval_minutes).strip())
         next_run_at = parse_next_run(schedule_type, normalized_cron or None, normalized_interval, base=datetime.now())
-        payload_json = json.dumps({'retry_limit': int(str(retry_limit or '3').strip() or '3')}, ensure_ascii=False)
-        create_job(
-            db,
-            name=name.strip(),
-            schedule_type=schedule_type,
-            cron_value=normalized_cron or None,
-            interval_minutes=normalized_interval,
-            approved_query_id=approved_query_id,
-            message_template_id=message_template_id,
-            next_run_at=next_run_at,
-            is_active=is_active,
-            payload_json=payload_json,
-        )
+        payload_json = json.dumps({'retry_limit': int(str(retry_limit or '3').strip() or '3'), 'retry_count': 0}, ensure_ascii=False)
+        if str(schedule_id or '').strip():
+            row = get_job_by_id(db, int(schedule_id))
+            if not row:
+                raise ValueError('schedule ไม่พบ')
+            update_job(
+                db,
+                row,
+                name=name.strip(),
+                schedule_type=schedule_type,
+                cron_value=normalized_cron or None,
+                interval_minutes=normalized_interval,
+                approved_query_id=approved_query_id,
+                message_template_id=message_template_id,
+                next_run_at=next_run_at,
+                is_active=is_active,
+                payload_json=payload_json,
+            )
+        else:
+            create_job(
+                db,
+                name=name.strip(),
+                schedule_type=schedule_type,
+                cron_value=normalized_cron or None,
+                interval_minutes=normalized_interval,
+                approved_query_id=approved_query_id,
+                message_template_id=message_template_id,
+                next_run_at=next_run_at,
+                is_active=is_active,
+                payload_json=payload_json,
+            )
         write_log(db, session.get('username'), client_ip(request), 'schedule.create', 'success', f'name={name}, type={schedule_type}')
         return RedirectResponse('/schedules', status_code=302)
     except Exception as exc:
@@ -782,6 +820,7 @@ def schedules_create(
                 message_templates=get_templates(db),
                 form_error=str(exc),
                 form_values={
+                    'id': schedule_id,
                     'name': name,
                     'schedule_type': schedule_type,
                     'cron_value': cron_value,
@@ -837,6 +876,15 @@ async def import_templates_page(request:Request, import_payload:str=Form(''), db
     result = import_templates_json(db, import_payload)
     write_log(db, session.get('username'), client_ip(request), 'template.import', 'success', str(result))
     return RedirectResponse('/templates', status_code=302)
+
+@router.post('/schedules/{job_id}/delete')
+def schedule_delete(job_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'schedules')
+    row = get_job_by_id(db, job_id)
+    if row:
+        delete_job(db, row)
+    return RedirectResponse('/schedules', status_code=302)
 
 @router.post('/schedules/{job_id}/run-now')
 def schedule_run_now(job_id:int, request:Request, db:Session=Depends(get_db)):

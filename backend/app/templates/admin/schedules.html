@@ -2,7 +2,7 @@
 {% block body %}
 <div class="page-header">
   <h1 class="page-title">Schedules</h1>
-  <div class="muted">Module 23: แยกฟอร์มเวลาและ validate ก่อนบันทึก</div>
+  <div class="muted">Module 31: scheduler fix, daily timing, edit/delete</div>
 </div>
 
 {% if form_error %}
@@ -11,7 +11,8 @@
 
 <div class="grid-2 mt-6">
   <form method="post" action="/schedules" class="card">
-    <h3>สร้าง Schedule</h3>
+    <h3>{% if form_values and form_values.id %}แก้ไข Schedule{% else %}สร้าง Schedule{% endif %}</h3>
+    <input type="hidden" name="schedule_id" value="{{ form_values.id if form_values else '' }}">
 
     <div class="mt-3">
       <label>Name</label>
@@ -31,7 +32,7 @@
 
     <div class="mt-3" id="field-once">
       <label>วันเวลาแบบครั้งเดียว</label>
-      <input class="input" name="cron_value" id="shared-cron-value" placeholder="2026-03-17 17:00" value="{{ form_values.cron_value if form_values else '' }}">
+      <input class="input" name="cron_value" id="shared-cron-value" placeholder="2026-03-17 17:00" value="{{ form_values.cron_value if form_values and (form_values.schedule_type == 'once' or not form_values.schedule_type) else '' }}">
       <div class="muted mt-2">ตัวอย่าง: 2026-03-17 17:00 หรือ 2026-03-17T17:00:00</div>
     </div>
 
@@ -86,27 +87,20 @@
       </div>
     </div>
 
-    <button class="btn mt-4" type="submit" onclick="prepareScheduleSubmit()">Save Schedule</button>
+    <div class="page-actions mt-4">
+      <button class="btn" type="submit" onclick="prepareScheduleSubmit()">{% if form_values and form_values.id %}Update Schedule{% else %}Save Schedule{% endif %}</button>
+      {% if form_values and form_values.id %}
+      <a href="/schedules" class="btn secondary">Cancel</a>
+      {% endif %}
+    </div>
   </form>
 
   <div class="card">
     <h3>คู่มือการตั้งเวลา</h3>
-    <div class="item">
-      <strong>ครั้งเดียว</strong>
-      <div class="muted">ใส่วันเวลาเต็ม เช่น 2026-03-17 17:00</div>
-    </div>
-    <div class="item">
-      <strong>ทุกวันเวลาเดิม</strong>
-      <div class="muted">ใส่เวลาอย่างเดียว เช่น 06:00 หรือ 17.00</div>
-    </div>
-    <div class="item">
-      <strong>ทุก X นาที</strong>
-      <div class="muted">กรอกตัวเลขนาที เช่น 30</div>
-    </div>
-    <div class="item">
-      <strong>Cron</strong>
-      <div class="muted">เช่น 0 6 * * * = ทุกวัน 06:00</div>
-    </div>
+    <div class="item"><strong>ครั้งเดียว</strong><div class="muted">ใส่วันเวลาเต็ม เช่น 2026-03-17 17:00</div></div>
+    <div class="item"><strong>ทุกวันเวลาเดิม</strong><div class="muted">ใส่เวลาอย่างเดียว เช่น 06:00 หรือ 17.00</div></div>
+    <div class="item"><strong>ทุก X นาที</strong><div class="muted">กรอกตัวเลขนาที เช่น 30</div></div>
+    <div class="item"><strong>Cron</strong><div class="muted">เช่น 0 6 * * * = ทุกวัน 06:00</div></div>
   </div>
 </div>
 
@@ -119,7 +113,9 @@
         <th>Type</th>
         <th>Value</th>
         <th>Next Run</th>
+        <th>Last Run</th>
         <th>Status</th>
+        <th>Action</th>
       </tr>
     </thead>
     <tbody>
@@ -129,10 +125,19 @@
         <td>{{ j.schedule_type }}</td>
         <td>{{ j.cron_value or j.interval_minutes or '-' }}</td>
         <td>{{ j.next_run_at or '-' }}</td>
+        <td>{{ j.last_run_at or '-' }}</td>
         <td>{{ j.is_active }}</td>
+        <td>
+          <div class="page-actions">
+            <a href="/schedules?edit_id={{ j.id }}" class="btn secondary">Edit</a>
+            <form method="post" action="/schedules/{{ j.id }}/delete" onsubmit="return confirm('Delete this schedule?')">
+              <button class="btn danger">Delete</button>
+            </form>
+          </div>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="muted">No schedules</td></tr>
+      <tr><td colspan="7" class="muted">No schedules</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -152,9 +157,6 @@ function prepareScheduleSubmit(){
   const dailyField = document.getElementById('daily-time-input')
   const cronField = document.getElementById('cron-expression-input')
   const intervalField = document.querySelector('input[name="interval_minutes"]')
-
-  shared.disabled = false
-  intervalField.disabled = false
 
   if(type === 'daily'){
     shared.value = dailyField.value

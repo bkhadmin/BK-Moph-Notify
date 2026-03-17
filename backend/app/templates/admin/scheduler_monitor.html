@@ -24,6 +24,7 @@
             <form method="post" action="/schedules/{{ j.id }}/run-now">
               <button class="btn secondary">Run Now</button>
             </form>
+            <a href="/schedules?edit_id={{ j.id }}" class="btn secondary">Edit</a>
           </td>
         </tr>
         {% else %}
