@@ -8,7 +8,8 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    volumes: [mysql_data:/var/lib/mysql]
+    volumes:
+      - mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 10s
@@ -64,6 +65,19 @@ services:
       redis:
         condition: service_healthy
 
+  scheduler:
+    build: ./backend
+    env_file: [.env]
+    command: python -m app.worker_scheduler
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_uploads:/app/storage/uploads
+
   nginx:
     image: nginx:1.27-alpine
     depends_on:
@@ -84,18 +98,3 @@ services:
 volumes:
   mysql_data:
   app_uploads:
-
-  scheduler:
-    build: ./backend
-    command: python -m app.worker_scheduler
-    restart: unless-stopped
-    depends_on:
-      - mysql
-      - redis
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      MOPH_NOTIFY_BASE_URL: ${MOPH_NOTIFY_BASE_URL}
-      MOPH_NOTIFY_SEND_PATH: ${MOPH_NOTIFY_SEND_PATH}
-      MOPH_NOTIFY_CLIENT_KEY: ${MOPH_NOTIFY_CLIENT_KEY}
-      MOPH_NOTIFY_SECRET_KEY: ${MOPH_NOTIFY_SECRET_KEY}
