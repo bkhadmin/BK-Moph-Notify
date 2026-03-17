@@ -19,6 +19,7 @@ from app.repositories.approved_queries import get_all as get_queries, create_ite
 from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template, clone_item as clone_template
 from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job
 from app.repositories.schedule_job_logs import get_recent as get_schedule_logs
+from app.worker_scheduler import run_job_now
 from app.repositories.send_logs import get_all as get_send_logs
 from app.repositories.media_files import create_item as create_media, get_all as get_media
 from app.repositories.delivery_statuses import get_all as get_delivery_statuses
@@ -744,6 +745,7 @@ def schedules_create(
     approved_query_id:int|None=Form(None),
     message_template_id:int|None=Form(None),
     is_active:str=Form('Y'),
+    retry_limit:str=Form('3'),
     db:Session=Depends(get_db)
 ):
     session=require_session(request)
@@ -754,6 +756,7 @@ def schedules_create(
         if str(interval_minutes or '').strip() != '':
             normalized_interval = int(str(interval_minutes).strip())
         next_run_at = parse_next_run(schedule_type, normalized_cron or None, normalized_interval, base=datetime.now())
+        payload_json = json.dumps({'retry_limit': int(str(retry_limit or '3').strip() or '3')}, ensure_ascii=False)
         create_job(
             db,
             name=name.strip(),
@@ -764,7 +767,7 @@ def schedules_create(
             message_template_id=message_template_id,
             next_run_at=next_run_at,
             is_active=is_active,
-            payload_json=None,
+            payload_json=payload_json,
         )
         write_log(db, session.get('username'), client_ip(request), 'schedule.create', 'success', f'name={name}, type={schedule_type}')
         return RedirectResponse('/schedules', status_code=302)
@@ -786,6 +789,7 @@ def schedules_create(
                     'approved_query_id': approved_query_id or '',
                     'message_template_id': message_template_id or '',
                     'is_active': is_active,
+                    'retry_limit': retry_limit,
                 }
             ),
             status_code=400
@@ -833,6 +837,13 @@ async def import_templates_page(request:Request, import_payload:str=Form(''), db
     result = import_templates_json(db, import_payload)
     write_log(db, session.get('username'), client_ip(request), 'template.import', 'success', str(result))
     return RedirectResponse('/templates', status_code=302)
+
+@router.post('/schedules/{job_id}/run-now')
+def schedule_run_now(job_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'schedules')
+    run_job_now(job_id)
+    return RedirectResponse('/scheduler-monitor', status_code=302)
 
 @router.get('/scheduler-monitor')
 def scheduler_monitor_page(request:Request, db:Session=Depends(get_db)):
