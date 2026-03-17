@@ -544,6 +544,27 @@ def notify_flex_builder(
             ]}
         }
         contents = bubble
+        save_template_type = 'flex_top5'
+        save_template_content = json.dumps({'title': title or 'Top 5 นัดหมายวันนี้'}, ensure_ascii=False)
+        save_alt_text = title.strip() or 'BK-Moph Notify Flex Message'
+    elif preset_mode == 'full_list':
+        preview_bubble = {
+            "type":"bubble",
+            "body":{"type":"box","layout":"vertical","contents":[
+                {"type":"text","text": title or "จำนวนผู้ป่วยนัดแยกรายคลินิก","weight":"bold","size":"lg","wrap":True, "color": title_color},
+                {"type":"text","text": subtitle or "วันที่ {วันนัด}","size":"sm","color":subtitle_color,"wrap":True,"margin":"md"},
+                {"type":"text","text":"ส่งเมื่อ {sent_at}","size":"sm","color":"#64748b","wrap":True,"margin":"sm"},
+                {"type":"separator","margin":"md"},
+                {"type":"text","text":"คลินิก / แผนก / จำนวนผู้ป่วย จะถูกสร้างอัตโนมัติจาก Query ทุกแถว","size":"sm","color":body_color,"wrap":True,"margin":"md"}
+            ]}
+        }
+        contents = preview_bubble
+        save_template_type = 'flex_full_list'
+        save_template_content = json.dumps({
+            'title': title or 'จำนวนผู้ป่วยนัดแยกรายคลินิก',
+            'chunk_size': 8
+        }, ensure_ascii=False)
+        save_alt_text = title.strip() or 'จำนวนผู้ป่วยนัดแยกรายคลินิก'
     else:
         bubble = build_bubble(
             title=title, subtitle=subtitle, body_text=body_text, hero_image_url=hero_image_url,
@@ -555,11 +576,14 @@ def notify_flex_builder(
             bubble["body"]["contents"].append({"type":"separator","margin":"md"})
             bubble["body"]["contents"].append({"type":"text","text":"BK-Moph Notify","size":"xs","color":"#94a3b8","align":"center","margin":"md"})
         contents = {"type":"carousel","contents":[bubble]} if preset_mode == 'carousel' else bubble
+        save_template_type = 'flex_carousel' if preset_mode == 'carousel' else 'flex'
+        save_template_content = json.dumps(contents, ensure_ascii=False)
+        save_alt_text = title.strip() or 'BK-Moph Notify Flex Message'
 
     flex_json = json.dumps(contents, ensure_ascii=False, indent=2)
 
     if save_as_template == '1' and (template_name or '').strip():
-        create_template(db, template_name.strip(), 'flex', flex_json, 'BK-Moph Notify Flex Message')
+        create_template(db, template_name.strip(), save_template_type, save_template_content, save_alt_text)
         write_log(db, session.get('username'), client_ip(request), 'template.create.from_flex_builder', 'success', template_name.strip())
 
     return templates.TemplateResponse('admin/notify_test.html', ctx(
