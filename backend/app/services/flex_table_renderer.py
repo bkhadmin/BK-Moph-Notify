@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.utils.thai_datetime import bangkok_now, format_thai_datetime
 
 def _date_text(rows):
     if rows and isinstance(rows[0], dict):
@@ -13,7 +14,7 @@ def build_full_table_flex(rows:list[dict], title:str="จำนวนผู้�
     if not rows:
         rows = [{}]
     appt_date = _date_text(rows)
-    sent_at = datetime.now().strftime("%d/%m/%Y %H:%M น.")
+    sent_at = format_thai_datetime(bangkok_now())
     bubbles = []
     for chunk, offset in _chunk(rows, chunk_size):
         contents = [

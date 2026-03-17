@@ -1,7 +1,8 @@
 from datetime import datetime
+from app.utils.thai_datetime import bangkok_now, format_thai_datetime
 
 def sent_at_text():
-    return datetime.now().strftime("%d/%m/%Y %H:%M น.")
+    return format_thai_datetime(bangkok_now())
 
 def _appointment_date(row:dict):
     return (
