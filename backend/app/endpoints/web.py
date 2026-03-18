@@ -45,6 +45,7 @@ from app.services.flex_builder_service import build_bubble, template_json_from_b
 from app.services.template_porter import export_templates_json, import_templates_json
 from app.services.flex_template_merger import build_flex_payload_from_template_rows
 from app.services.dynamic_template_renderer import build_dynamic_template_payload
+from app.services.dynamic_flex_fields import get_available_fields
 
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
@@ -933,6 +934,53 @@ def scheduler_monitor_page(request:Request, db:Session=Depends(get_db)):
         jobs=get_jobs(db),
         schedule_logs=get_schedule_logs(db, 100)
     ))
+
+
+@router.get('/templates/dynamic-flex-builder')
+def dynamic_flex_builder_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    return templates.TemplateResponse('admin/dynamic_flex_builder.html', ctx(request, db, session, form_error=None, form_values={}, preview_json='', fields=[]))
+
+@router.post('/templates/dynamic-flex-builder')
+def dynamic_flex_builder_submit(
+    request:Request,
+    template_name:str=Form(''),
+    approved_query_id:str=Form(''),
+    alt_text:str=Form('BK-Moph Notify Flex Message'),
+    flex_json:str=Form(''),
+    save_as_template:str=Form('0'),
+    db:Session=Depends(get_db)
+):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    from app.repositories.approved_queries import get_by_id as get_query_by_id
+    from app.services.hosxp_query import preview_query
+    rows = []
+    fields = []
+    preview_json = ''
+    form_values = {
+        'template_name': template_name,
+        'approved_query_id': approved_query_id,
+        'alt_text': alt_text,
+        'flex_json': flex_json,
+        'save_as_template': save_as_template,
+    }
+    try:
+        if str(approved_query_id or '').strip():
+            q = get_query_by_id(db, int(approved_query_id))
+            if q:
+                data = preview_query(q.sql_text, max_rows=min(q.max_rows or 20, 20))
+                rows = data.get('rows') or []
+        fields = get_available_fields(rows)
+        preview_payload = build_dynamic_template_payload('flex_dynamic', flex_json, alt_text, rows)
+        preview_json = json.dumps(preview_payload, ensure_ascii=False, indent=2)
+        if save_as_template == '1' and (template_name or '').strip():
+            create_template(db, template_name.strip(), 'flex_dynamic', flex_json, alt_text.strip() or 'BK-Moph Notify Flex Message')
+            write_log(db, session.get('username'), client_ip(request), 'template.create.dynamic_flex', 'success', template_name.strip())
+        return templates.TemplateResponse('admin/dynamic_flex_builder.html', ctx(request, db, session, form_error=None, form_values=form_values, preview_json=preview_json, fields=fields))
+    except Exception as exc:
+        return templates.TemplateResponse('admin/dynamic_flex_builder.html', ctx(request, db, session, form_error=str(exc), form_values=form_values, preview_json=preview_json, fields=fields), status_code=400)
 
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):
