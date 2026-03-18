@@ -26,38 +26,35 @@ def render_text_template(text, row):
         return _stringify((row or {}).get(key, ""))
     return FIELD_RE.sub(repl, text)
 
-def render_node(node, row):
-    if isinstance(node, dict):
-        return {k: render_node(v, row) for k, v in node.items()}
-    if isinstance(node, list):
-        return [render_node(v, row) for v in node]
-    if isinstance(node, str):
-        return render_text_template(node, row)
-    return node
-
-def expand_repeaters(node, rows):
+def _render_with_repeaters(node, first_row, rows):
     if isinstance(node, dict):
         if node.get("_repeat") == "rows" and "template" in node:
             out = []
             tpl = node["template"]
             for row in rows or []:
-                out.append(render_node(deepcopy(tpl), row))
+                out.append(_render_with_repeaters(deepcopy(tpl), row, rows))
             return out
-        new_dict = {}
+        out = {}
         for k, v in node.items():
             if k in ("_repeat", "template"):
                 continue
-            new_dict[k] = expand_repeaters(v, rows)
-        return new_dict
+            rendered = _render_with_repeaters(v, first_row, rows)
+            out[k] = rendered
+        return out
+
     if isinstance(node, list):
         out = []
         for item in node:
-            expanded = expand_repeaters(item, rows)
-            if isinstance(expanded, list):
-                out.extend(expanded)
+            rendered = _render_with_repeaters(item, first_row, rows)
+            if isinstance(rendered, list):
+                out.extend(rendered)
             else:
-                out.append(expanded)
+                out.append(rendered)
         return out
+
+    if isinstance(node, str):
+        return render_text_template(node, first_row)
+
     return node
 
 def render_dynamic_flex_content(content, rows):
@@ -67,6 +64,4 @@ def render_dynamic_flex_content(content, rows):
         except Exception:
             return None
     first_row = rows[0] if rows else {}
-    content = render_node(content, first_row)
-    content = expand_repeaters(content, rows)
-    return content
+    return _render_with_repeaters(content, first_row, rows)
