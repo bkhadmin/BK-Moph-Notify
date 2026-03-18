@@ -11,6 +11,16 @@ BANGKOK_TZ = timezone(timedelta(hours=7))
 def bangkok_now() -> datetime:
     return datetime.now(BANGKOK_TZ)
 
+def bangkok_now_naive() -> datetime:
+    return bangkok_now().replace(tzinfo=None)
+
+def to_bangkok_naive(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(BANGKOK_TZ).replace(tzinfo=None)
+
 def format_thai_date(dt: datetime) -> str:
     if not dt:
         return ""
@@ -27,4 +37,5 @@ def format_thai_time(dt: datetime) -> str:
 def format_thai_datetime(dt: datetime) -> str:
     if not dt:
         return ""
-    return f"{format_thai_date(dt)} เวลา {dt.strftime('%H.%M')} น."
+    local_dt = to_bangkok_naive(dt) or dt
+    return f"{format_thai_date(local_dt)} เวลา {local_dt.strftime('%H.%M')} น."

@@ -30,7 +30,7 @@ from app.services.provider_auth import provider_login_url,exchange_profile,test_
 from app.services.hosxp_query import preview_query, test_connection
 from app.services.sql_guard import ensure_safe_select
 from app.services.template_render import render_text_template, build_message_payload
-from app.services.scheduler_service import parse_next_run
+from app.services.scheduler_service import parse_next_run, scheduler_now
 from app.services.media_service import save_resized_image
 from app.services.send_pipeline import send_with_log
 from app.services.csv_export import to_csv_bytes
@@ -806,7 +806,7 @@ def schedules_create(
         normalized_interval = None
         if str(interval_minutes or '').strip() != '':
             normalized_interval = int(str(interval_minutes).strip())
-        next_run_at = parse_next_run(schedule_type, normalized_cron or None, normalized_interval, base=datetime.now())
+        next_run_at = parse_next_run(schedule_type, normalized_cron or None, normalized_interval, base=scheduler_now())
         payload_json = json.dumps({'retry_limit': int(str(retry_limit or '3').strip() or '3'), 'retry_count': 0}, ensure_ascii=False)
         if str(schedule_id or '').strip():
             row = get_job_by_id(db, int(schedule_id))

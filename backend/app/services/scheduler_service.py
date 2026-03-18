@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import re
 from croniter import croniter
+from app.utils.thai_datetime import bangkok_now_naive
 
 def _normalize_time_only(value:str) -> str:
     value = (value or "").strip().replace(".", ":")
@@ -26,8 +27,11 @@ def _parse_daily(value:str, base:datetime) -> datetime:
         run_at += timedelta(days=1)
     return run_at
 
+def scheduler_now() -> datetime:
+    return bangkok_now_naive()
+
 def parse_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|None, base:datetime|None=None) -> datetime|None:
-    base = base or datetime.now()
+    base = base or scheduler_now()
     st = (schedule_type or "").strip().lower()
 
     if st == "once":
@@ -53,7 +57,7 @@ def parse_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|
     raise ValueError("schedule_type ไม่ถูกต้อง")
 
 def compute_following_next_run(schedule_type:str, cron_value:str|None, interval_minutes:int|None, last_base:datetime|None=None):
-    base = last_base or datetime.now()
+    base = last_base or scheduler_now()
     st = (schedule_type or "").strip().lower()
     if st == "once":
         return None

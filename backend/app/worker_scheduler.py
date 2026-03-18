@@ -13,7 +13,7 @@ from app.services.hosxp_query import preview_query
 from app.services.flex_template_merger import build_flex_payload_from_template_rows
 from app.services.dynamic_template_renderer import build_dynamic_template_payload
 from app.services.moph_notify import send_messages
-from app.services.scheduler_service import compute_following_next_run
+from app.services.scheduler_service import compute_following_next_run, scheduler_now
 from app.services.template_render import build_message_payload
 
 POLL_SECONDS = 30
@@ -104,7 +104,7 @@ def _finalize_failure(db, job, now, rows, messages, exc):
         )
 
 def execute_job(db, job):
-    now = datetime.now()
+    now = scheduler_now()
     rows = []
     messages = []
     try:
@@ -131,7 +131,7 @@ def run_once():
     ensure_tables()
     db = SessionLocal()
     try:
-        now = datetime.now()
+        now = scheduler_now()
         jobs = get_due_jobs(db, now)
         for job in jobs:
             execute_job(db, job)
