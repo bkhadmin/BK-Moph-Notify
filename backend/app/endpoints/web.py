@@ -1,3 +1,9 @@
+
+
+def ensure_alert_tables():
+    from app.services.alert_case_service import ensure_tables
+    return ensure_tables()
+
 import json
 from datetime import datetime
 from fastapi import APIRouter,Request,Form,Depends,status,HTTPException,UploadFile,File
@@ -45,6 +51,7 @@ from app.services.flex_builder_service import build_bubble, template_json_from_b
 from app.services.template_porter import export_templates_json, import_templates_json
 from app.services.flex_template_merger import build_flex_payload_from_template_rows
 from app.services.dynamic_template_renderer import build_dynamic_template_payload
+from app.services.alert_case_service import enrich_alert_rows, filter_rows_for_send, mark_rows_sent, claim_case, ensure_tables as ensure_alert_tables
 from app.services.dynamic_flex_fields import get_available_fields
 
 router=APIRouter()
