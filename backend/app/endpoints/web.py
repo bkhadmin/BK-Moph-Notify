@@ -1,7 +1,8 @@
 
 
 def ensure_alert_tables():
-    from app.services.alert_case_service import ensure_tables
+    from app.services.claim_security import verify_claim_signature
+from app.services.alert_case_service import ensure_tables
     return ensure_tables()
 
 import json
@@ -1075,7 +1076,15 @@ def alert_cases_page(request:Request, db:Session=Depends(get_db)):
     ))
 
 @router.get('/alerts/claim')
-def alert_claim_page(request:Request, case_key:str, db:Session=Depends(get_db)):
+def alert_claim_page(request:Request, case_key:str, expires:str='', sig:str='', db:Session=Depends(get_db)):
+    if not verify_claim_signature(case_key, expires, sig):
+        return templates.TemplateResponse('public/claim_case.html', {
+            'request': request,
+            'case': None,
+            'error': 'ลิงก์รับเคสไม่ถูกต้องหรือหมดอายุ',
+            'success': False,
+            'redirect_line': True,
+        }, status_code=400)
     case = get_alert_case_by_key(db, case_key)
     if not case:
         raise HTTPException(status_code=404, detail='case not found')
@@ -1084,10 +1093,19 @@ def alert_claim_page(request:Request, case_key:str, db:Session=Depends(get_db)):
         'case': case,
         'error': None,
         'success': False,
+        'redirect_line': False,
     })
 
 @router.post('/alerts/claim')
-def alert_claim_submit(request:Request, case_key:str=Form(...), receiver_name:str=Form(''), db:Session=Depends(get_db)):
+def alert_claim_submit(request:Request, case_key:str=Form(...), expires:str=Form(''), sig:str=Form(''), receiver_name:str=Form(''), db:Session=Depends(get_db)):
+    if not verify_claim_signature(case_key, expires, sig):
+        return templates.TemplateResponse('public/claim_case.html', {
+            'request': request,
+            'case': None,
+            'error': 'ลิงก์รับเคสไม่ถูกต้องหรือหมดอายุ',
+            'success': False,
+            'redirect_line': True,
+        }, status_code=400)
     case = get_alert_case_by_key(db, case_key)
     if not case:
         raise HTTPException(status_code=404, detail='case not found')
@@ -1097,6 +1115,7 @@ def alert_claim_submit(request:Request, case_key:str=Form(...), receiver_name:st
             'case': case,
             'error': 'เคสนี้มีผู้รับเคสแล้ว',
             'success': False,
+            'redirect_line': False,
         })
     session = get_current_session(request)
     receiver = (session.get('username') if session else '') or receiver_name.strip()
@@ -1106,6 +1125,7 @@ def alert_claim_submit(request:Request, case_key:str=Form(...), receiver_name:st
             'case': case,
             'error': 'กรุณาระบุชื่อผู้รับเคส',
             'success': False,
+            'redirect_line': False,
         })
     claim_case(db, case, receiver)
     return templates.TemplateResponse('public/claim_case.html', {
@@ -1113,6 +1133,7 @@ def alert_claim_submit(request:Request, case_key:str=Form(...), receiver_name:st
         'case': case,
         'error': None,
         'success': True,
+        'redirect_line': False,
     })
 
 

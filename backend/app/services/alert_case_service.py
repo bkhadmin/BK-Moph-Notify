@@ -4,6 +4,7 @@ from datetime import datetime
 from app.db.base import Base
 from app.db.session import engine
 from app.repositories.alert_cases import get_by_case_key, create_item, update_item
+from app.services.claim_security import build_signed_claim_url
 
 def ensure_tables():
     Base.metadata.create_all(bind=engine)
@@ -60,7 +61,7 @@ def enrich_alert_rows(db, rows, base_url: str):
         case = ensure_case_for_row(db, item)
         if case:
             item["case_key"] = case.case_key
-            item["claim_url"] = f"{base_url}/alerts/claim?case_key={case.case_key}"
+            item["claim_url"] = build_signed_claim_url(base_url, case.case_key)
             item["case_status"] = case.status
             item["claimed_by"] = case.claimed_by or ""
             item["claimed_at"] = case.claimed_at.strftime("%Y-%m-%d %H:%M:%S") if case.claimed_at else ""
