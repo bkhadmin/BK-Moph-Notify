@@ -765,7 +765,7 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
     try:
         ensure_alert_tables()
         data = preview_query(q.sql_text, max_rows=q.max_rows)
-        rows = enrich_alert_rows(db, data['rows'], str(request.base_url).rstrip('/'))
+        rows = enrich_alert_rows(db, data['rows'], _public_base_url(request))
         rows = filter_rows_for_send(rows)
         dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
         if dynamic_payload is not None:
@@ -802,7 +802,7 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     if not q or not t:
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
-    rows = enrich_alert_rows(db, data['rows'], str(request.base_url).rstrip('/'))
+    rows = enrich_alert_rows(db, data['rows'], _public_base_url(request))
     rows = filter_rows_for_send(rows)
     dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
     if dynamic_payload is not None:
@@ -1053,7 +1053,7 @@ def dynamic_flex_builder_submit(
             q = get_query_by_id(db, int(approved_query_id))
             if q:
                 data = preview_query(q.sql_text, max_rows=min(q.max_rows or 20, 20))
-                rows = enrich_alert_rows(db, data.get('rows') or [], str(request.base_url).rstrip('/'))
+                rows = enrich_alert_rows(db, data.get('rows') or [], _public_base_url(request))
         fields = get_available_fields(rows)
         preview_payload = build_dynamic_template_payload('flex_dynamic', flex_json, alt_text, rows)
         preview_json = json.dumps(preview_payload, ensure_ascii=False, indent=2)
