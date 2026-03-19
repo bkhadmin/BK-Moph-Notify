@@ -1,28 +1,136 @@
-
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from sqlalchemy.orm import Session
+import json
 import os
+from datetime import datetime
 
-from app.db import get_db
-from app.services.alert_case_service import get_alert_case_by_key, claim_case
-from app.auth.session import get_current_session
+from fastapi import APIRouter, Request, Form, Depends, status, HTTPException, UploadFile, File
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 
-router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.core.config import settings
+from app.core.csrf import new_token, valid
+from app.core.session import create_session, get_session, destroy_session
+from app.core.security import verify_password, hash_password
+from app.db.session import get_db
+
+from app.repositories.users import get_by_username, get_by_id, get_all as get_users, upsert_provider_user, update_role, create_local_user, update_user, delete_user
+from app.repositories.roles import get_by_code, get_all as get_roles
+from app.repositories.permissions import get_all as get_permissions
+from app.repositories.access_logs import write_log, get_all as get_access_logs
+from app.repositories.ip_bans import get_by_ip, touch_fail, clear_fail
+from app.repositories.role_permissions import set_role_permissions, get_permission_codes_for_role
+from app.repositories.approved_queries import get_all as get_queries, create_item as create_query, get_by_id as get_query_by_id, update_item as update_query, delete_item as delete_query
+from app.repositories.message_templates import get_all as get_templates, create_item as create_template, get_by_id as get_template_by_id, update_item as update_template, delete_item as delete_template, clone_item as clone_template
+from app.repositories.schedule_jobs import get_all as get_jobs, create_item as create_job, get_by_id as get_job_by_id, update_item as update_job, delete_item as delete_job
+from app.repositories.schedule_job_logs import get_recent as get_schedule_logs
+from app.repositories.send_logs import get_all as get_send_logs
+from app.repositories.media_files import create_item as create_media, get_all as get_media
+from app.repositories.delivery_statuses import get_all as get_delivery_statuses
+from app.repositories.provider_profiles import get_all as get_provider_profiles, get_by_id as get_provider_profile_by_id, update_profile_manual
+from app.repositories.provider_profile_histories import get_all_for_profile
+from app.repositories.alert_cases import get_all as get_alert_cases, get_by_case_key as get_alert_case_by_key
+
+from app.worker_scheduler import run_job_now
+from app.services.rbac import allowed_menu
+from app.services.provider_auth import provider_login_url, exchange_profile, test_provider_config
+from app.services.hosxp_query import preview_query, test_connection
+from app.services.sql_guard import ensure_safe_select
+from app.services.template_render import render_text_template, build_message_payload
+from app.services.scheduler_service import parse_next_run, scheduler_now
+from app.services.media_service import save_resized_image
+from app.services.send_pipeline import send_with_log
+from app.services.csv_export import to_csv_bytes
+from app.services.xlsx_export import to_xlsx_bytes
+from app.services.delivery_reconcile import ingest_status_callback
+from app.services.pagination import paginate
+from app.services.chart_data import counter_from_rows
+from app.services.moph_notify import health_check as moph_notify_health_check
+from app.services.flex_transform import as_flex_message_payload, detect_mode_and_build
+from app.services.flex_validator import validate_flex_message_payload, build_minimal_flex_payload
+from app.services.flex_builder_service import build_bubble, template_json_from_bubble
+from app.services.template_porter import export_templates_json, import_templates_json
+from app.services.flex_template_merger import build_flex_payload_from_template_rows
+from app.services.dynamic_template_renderer import build_dynamic_template_payload
+from app.services.dynamic_flex_fields import get_available_fields
+from app.services.alert_case_service import enrich_alert_rows, filter_rows_for_send, mark_rows_sent, claim_case, ensure_tables
+from app.services.claim_security import verify_claim_signature
 
 def ensure_alert_tables():
-    try:
-        from app.services.alert_case_service import ensure_tables
-        return ensure_tables()
-    except Exception:
-        return None
+    return ensure_tables()
 
 def _public_base_url(request: Request) -> str:
     value = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if value:
         return value
     return str(request.base_url).rstrip("/")
+
+router=APIRouter()
+templates=Jinja2Templates(directory='app/templates')
+
+def client_ip(request:Request)->str:
+    return request.headers.get('x-forwarded-for', request.client.host if request.client else 'unknown').split(',')[0].strip()
+
+def get_current_session(request:Request):
+    return get_session(request.cookies.get(settings.session_cookie_name))
+
+def _filter_rows(rows, keyword:str):
+    if not keyword:
+        return rows
+    k = keyword.lower()
+    out = []
+    for row in rows:
+        text = ' '.join('' if v is None else str(v) for v in row.values()).lower()
+        if k in text:
+            out.append(row)
+    return out
+
+def require_session(request:Request):
+    session = get_current_session(request)
+    if not session:
+        raise HTTPException(status_code=401, detail='not authenticated')
+    return session
+
+def require_menu(db:Session, session:dict, menu_code:str):
+    if not allowed_menu(db, session.get('role_id'), menu_code):
+        raise HTTPException(status_code=403, detail='forbidden')
+
+def _query_visual_rows(rows):
+    out = []
+    for row in (rows or [])[:8]:
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+def pretty_json(value):
+    try:
+        if isinstance(value, str):
+            value = json.loads(value)
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except Exception:
+        return str(value)
+
+def ctx(request:Request, db:Session, session:dict|None, **extra):
+    role_id=session.get('role_id') if session else None
+    menus={
+        'dashboard':allowed_menu(db,role_id,'dashboard'),
+        'users':allowed_menu(db,role_id,'users'),
+        'logs':allowed_menu(db,role_id,'logs'),
+        'rbac':allowed_menu(db,role_id,'rbac'),
+        'notify':allowed_menu(db,role_id,'notify'),
+        'queries':allowed_menu(db,role_id,'queries'),
+        'templates':allowed_menu(db,role_id,'templates'),
+        'schedules':allowed_menu(db,role_id,'schedules'),
+        'media':allowed_menu(db,role_id,'media'),
+    }
+    data={'request':request,'session':session,'menus':menus,'pretty_json':pretty_json}
+    data.update(extra)
+    return data
+
+def render_login(request:Request, error:str|None=None):
+    token=new_token()
+    response=templates.TemplateResponse('auth/login.html', {'request':request,'csrf_token':token,'error':error,'provider_login_enabled':settings.provider_login_enabled})
+    response.set_cookie(settings.csrf_cookie_name, token, httponly=False, samesite=settings.session_cookie_samesite, path='/')
+    return response
 
 @router.get('/health')
 def health(): return {'status':'ok','app':settings.app_name}
