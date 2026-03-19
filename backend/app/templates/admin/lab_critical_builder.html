@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="page-header">
+  <h1 class="page-title">LAB Critical Claim Builder</h1>
+  <div class="muted">Module 39: 1 คน = 1 bubble + 1 ปุ่มรับเคสต่อคน</div>
+</div>
+
+{% if form_error %}
+<div class="alert error mt-4">{{ form_error }}</div>
+{% endif %}
+{% if saved %}
+<div class="alert success mt-4">บันทึก template เรียบร้อยแล้ว</div>
+{% endif %}
+
+<div class="grid-2 mt-6">
+  <form method="post" action="/templates/lab-critical-builder" class="card">
+    <h3>สร้าง Template สำเร็จรูป</h3>
+
+    <div class="mt-3">
+      <label>Template Name</label>
+      <input class="input" name="template_name" value="{{ form_values.template_name if form_values else '' }}" placeholder="เช่น LAB Critical Claim">
+    </div>
+
+    <div class="mt-3">
+      <label>ใช้ร่วมกับ Approved Query</label>
+      <select class="input" name="approved_query_id">
+        <option value="">เลือกภายหลังได้</option>
+        {% for q in approved_queries %}
+        <option value="{{ q.id }}" {% if form_values and form_values.approved_query_id|string == q.id|string %}selected{% endif %}>{{ q.name }}</option>
+        {% endfor %}
+      </select>
+      <div class="muted mt-2">Template นี้ใช้กับ Preview From Template + Query และ Send From Template + Query ได้ทันที</div>
+    </div>
+
+    <div class="page-actions mt-4">
+      <button class="btn" type="submit">Save Template</button>
+      <a class="btn secondary" href="/templates">Back to Templates</a>
+    </div>
+  </form>
+
+  <div class="card">
+    <h3>ลักษณะการทำงาน</h3>
+    <div class="muted mt-2">
+      <div>- 1 แถวของ query = 1 bubble</div>
+      <div>- 1 bubble = 1 ปุ่มรับเคส</div>
+      <div>- ถ้ารับเคสแล้ว ระบบจะไม่ส่งชื่อผู้ป่วยรายนั้นซ้ำอีก</div>
+      <div>- ใช้ field จาก query ได้แก่ hn, ptname, lab_items_name, lab_order_result, report_date_text, report_time_text, cur_dep, แพทย์ผู้สั่ง</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

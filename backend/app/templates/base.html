@@ -28,6 +28,7 @@
     </nav>
   </aside>
   <main class="content">
+    <div class="topbar"><div><strong>{{ session.display_name or session.username }}</strong><span class="muted"> · {{ session.username }}</span></div><div class="badge">{{ "Online" }}</div></div>
     <div class="container">
       {% block body %}{% endblock %}
     </div>

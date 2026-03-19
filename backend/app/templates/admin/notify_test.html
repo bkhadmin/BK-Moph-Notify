@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block body %}
 <div class="page-header">
-  <h1 class="page-title">MOPH Notify Test</h1>
-  <div class="muted">Module 20: restore preview/send template routes + media reference + AdminLTE style dashboard</div>
+  <h1 class="page-title">MOPH Notify</h1>
+  
 </div>
 
 {% if send_error %}
@@ -41,7 +41,7 @@
       <select class="input" name="preset_mode">
         <option value="single">Single Bubble</option>
         <option value="summary">Summary Bubble</option>
-        <option value="top5">Top 5 Dashboard</option><option value="full_list">Full List Dashboard</option><option value="full_list">Full List Dashboard</option>
+        <option value="top5">Top 5 Dashboard</option><option value="full_list">Full List Dashboard</option>
         <option value="carousel">Carousel Item</option>
       </select>
     </div>
