@@ -111,3 +111,14 @@ services:
 volumes:
   mysql_data:
   app_uploads:
+
+
+cloudflared:
+  image: cloudflare/cloudflared:latest
+  container_name: bk-cloudflared
+  restart: always
+  depends_on:
+    app:
+      condition: service_started
+  env_file: [.env]
+  command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
