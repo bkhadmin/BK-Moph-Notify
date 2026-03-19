@@ -1,27 +1,103 @@
 {% extends "base.html" %}
 {% block body %}
 <div class="page-header">
-  <h1 class="page-title">Users</h1>
+  <div>
+    <h1 class="page-title">Users</h1>
+    <div class="muted">จัดการผู้ใช้ ปรับสิทธิ์ เปิด/ปิดบัญชี และลบผู้ใช้</div>
+  </div>
+</div>
+
+<div class="grid-2 mt-6">
+  <form method="post" action="{% if edit_user %}/users/{{ edit_user.id }}/update{% else %}/users/create{% endif %}" class="card">
+    <h3>{% if edit_user %}Edit User{% else %}Create Local User{% endif %}</h3>
+    <div class="grid-2 mt-3">
+      <div>
+        <label>Username</label>
+        <input class="input" name="username" value="{{ edit_user.username if edit_user else '' }}" required>
+      </div>
+      <div>
+        <label>Display Name</label>
+        <input class="input" name="display_name" value="{{ edit_user.display_name if edit_user else '' }}">
+      </div>
+    </div>
+    <div class="grid-2 mt-3">
+      <div>
+        <label>Password {% if edit_user %}<span class="muted">(เว้นว่างถ้าไม่เปลี่ยน)</span>{% endif %}</label>
+        <input class="input" type="password" name="password" {% if not edit_user %}placeholder="กรอกรหัสผ่านสำหรับ local user"{% endif %}>
+      </div>
+      <div>
+        <label>Role</label>
+        <select class="input" name="role_id">
+          <option value="">-- none --</option>
+          {% for r in roles %}
+          <option value="{{ r.id }}" {% if edit_user and edit_user.role_id == r.id %}selected{% endif %}>{{ r.code }} - {{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="grid-2 mt-3">
+      <div>
+        <label>Auth Type</label>
+        <input class="input" value="{{ edit_user.auth_type if edit_user else 'local' }}" disabled>
+      </div>
+      <div>
+        <label>Status</label>
+        <select class="input" name="is_active">
+          <option value="Y" {% if not edit_user or edit_user.is_active == 'Y' %}selected{% endif %}>Active</option>
+          <option value="N" {% if edit_user and edit_user.is_active == 'N' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+    </div>
+    <div class="page-actions mt-4">
+      <button class="btn" type="submit">{% if edit_user %}Update User{% else %}Create User{% endif %}</button>
+      {% if edit_user %}<a class="btn secondary" href="/users">Cancel</a>{% endif %}
+    </div>
+  </form>
+
+  <div class="card">
+    <h3>Role Guide</h3>
+    <div class="item"><strong>superadmin</strong><div class="muted">สิทธิ์เต็มระบบ รวม RBAC และจัดการผู้ใช้</div></div>
+    <div class="item"><strong>admin</strong><div class="muted">จัดการงานระบบตามเมนูที่ role อนุญาต</div></div>
+    <div class="item"><strong>user</strong><div class="muted">ใช้งานทั่วไปตามสิทธิ์ที่กำหนด</div></div>
+  </div>
 </div>
 
 <div class="card mt-6">
-<input id="user-search" class="input" placeholder="Search user..." onkeyup="filterTable('user-search','user-table')">
-
-<table id="user-table" class="table mt-4">
-<thead>
-<tr><th>Name</th><th>Username</th><th>Auth</th><th>Role</th></tr>
-</thead>
-<tbody>
-{% for u in users %}
-<tr>
-<td>{{u.display_name}}</td>
-<td>{{u.username}}</td>
-<td>{{u.auth_type}}</td>
-<td>{{u.role_id}}</td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
+  <div class="page-actions" style="justify-content:space-between;align-items:center">
+    <h3 style="margin:0">User List</h3>
+    <input id="user-search" class="input slim" placeholder="Search user..." onkeyup="filterTable('user-search','user-table')">
+  </div>
+  <table id="user-table" class="table mt-4">
+    <thead>
+      <tr><th>Name</th><th>Username</th><th>Auth</th><th>Role</th><th>Status</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td>{{ u.display_name or '-' }}</td>
+        <td>{{ u.username }}</td>
+        <td><span class="badge">{{ u.auth_type }}</span></td>
+        <td>
+          {% for r in roles %}
+            {% if u.role_id == r.id %}<span class="badge">{{ r.code }}</span>{% endif %}
+          {% endfor %}
+          {% if not u.role_id %}-{% endif %}
+        </td>
+        <td>
+          <span class="badge {% if u.is_active == 'Y' %}success{% else %}danger{% endif %}">{{ 'Active' if u.is_active == 'Y' else 'Inactive' }}</span>
+        </td>
+        <td>
+          <div class="page-actions">
+            <a class="btn secondary" href="/users?edit_id={{ u.id }}">Edit</a>
+            {% if session.user_id != u.id %}
+            <a class="btn danger" href="/users/{{ u.id }}/delete" onclick="return confirm('Delete this user?')">Delete</a>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 <script src="/static/js/table.js"></script>

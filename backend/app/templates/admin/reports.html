@@ -1,27 +1,60 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="p-6">
-  <h1 class="text-2xl font-bold">Reports Dashboard</h1>
-  <div class="grid grid-cols-1 gap-4 md:grid-cols-3 mt-6">
-    {% for key, value in summary.items() %}
-    <div class="card">
-      <div class="muted">{{ key }}</div>
-      <div class="metric">{{ value }}</div>
-    </div>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Reports Dashboard</h1>
+    <div class="muted">ภาพรวมการใช้งานระบบ การส่งข้อความ และสถานะการจัดส่ง</div>
+  </div>
+</div>
+
+<div class="stat-grid mt-6">
+  <div class="stat-card"><div class="stat-label">Users</div><div class="stat-value">{{ summary.users }}</div></div>
+  <div class="stat-card success"><div class="stat-label">Access Logs</div><div class="stat-value">{{ summary.access_logs }}</div></div>
+  <div class="stat-card warning"><div class="stat-label">Send Logs</div><div class="stat-value">{{ summary.send_logs }}</div></div>
+  <div class="stat-card danger"><div class="stat-label">Delivery Status</div><div class="stat-value">{{ summary.delivery_statuses }}</div></div>
+</div>
+
+<div class="grid-3 mt-6">
+  <div class="card">
+    <h3 class="section-title">Access Status</h3>
+    {% for k, v in charts.access_status.items() %}
+    <div class="kv"><span>{{ k }}</span><strong>{{ v }}</strong></div>
+    {% else %}
+    <div class="muted">No data</div>
     {% endfor %}
   </div>
-  <div class="grid grid-cols-1 gap-4 md:grid-cols-3 mt-6">
-    <div class="card">
-      <h3>Access Status</h3>
-      <pre>{{ charts.access_status }}</pre>
-    </div>
-    <div class="card">
-      <h3>Send Status</h3>
-      <pre>{{ charts.send_status }}</pre>
-    </div>
-    <div class="card">
-      <h3>Delivery Status</h3>
-      <pre>{{ charts.delivery_status }}</pre>
+  <div class="card">
+    <h3 class="section-title">Send Status</h3>
+    {% for k, v in charts.send_status.items() %}
+    <div class="kv"><span>{{ k }}</span><strong>{{ v }}</strong></div>
+    {% else %}
+    <div class="muted">No data</div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h3 class="section-title">Delivery Status</h3>
+    {% for k, v in charts.delivery_status.items() %}
+    <div class="kv"><span>{{ k }}</span><strong>{{ v }}</strong></div>
+    {% else %}
+    <div class="muted">No data</div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid-2 mt-6">
+  <div class="card">
+    <h3 class="section-title">System Notes</h3>
+    <div class="item"><strong>Access Logs</strong><div class="muted">บอกภาพรวมการเข้าใช้งานและสถานะสำเร็จ/ล้มเหลว</div></div>
+    <div class="item"><strong>Send Logs</strong><div class="muted">บอกการส่งข้อความสำเร็จ/ล้มเหลวจาก MOPH Notify</div></div>
+    <div class="item"><strong>Delivery Status</strong><div class="muted">ใช้ติดตามผลลัพธ์การจัดส่งและสถานะที่ตอบกลับ</div></div>
+  </div>
+  <div class="card">
+    <h3 class="section-title">Quick Links</h3>
+    <div class="quick-grid">
+      <a class="quick-btn" href="/logs/access">Access Logs</a>
+      <a class="quick-btn" href="/notify/test">MOPH Notify</a>
+      <a class="quick-btn" href="/scheduler-monitor">Scheduler Monitor</a>
+      <a class="quick-btn" href="/alerts/cases">Alert Cases</a>
     </div>
   </div>
 </div>
