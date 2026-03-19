@@ -5,6 +5,7 @@ from app.db.base import Base
 from app.db.session import engine
 from app.repositories.alert_cases import get_by_case_key, create_item, update_item
 from app.services.claim_security import build_signed_claim_url
+from app.services.timezone_utils import utcnow
 
 def ensure_tables():
     Base.metadata.create_all(bind=engine)
@@ -81,7 +82,7 @@ def mark_rows_sent(db, rows):
         case = get_by_case_key(db, case_key)
         if not case:
             continue
-        now = datetime.utcnow()
+        now = utcnow()
         count = int(case.sent_count or 0) + 1
         update_item(
             db,
@@ -93,5 +94,5 @@ def mark_rows_sent(db, rows):
 
 def claim_case(db, case, receiver_name: str):
     ensure_tables()
-    now = datetime.utcnow()
+    now = utcnow()
     return update_item(db, case, status="CLAIMED", claimed_by=receiver_name, claimed_at=now)

@@ -4,7 +4,7 @@ def _fmt_dt(dt):
     if not dt:
         return ''
     try:
-        return dt.strftime('%d/%m/%Y %H:%M:%S')
+        return format_bangkok(dt)
     except Exception:
         return str(dt)
 
@@ -48,7 +48,7 @@ def _alert_case_dashboard(rows):
     with_sent = [r for r in rows if r.get('message_sent_at')]
     with_claim_minutes = [float(r['minutes_to_claim']) for r in rows if str(r.get('minutes_to_claim')).strip() not in ('', 'None')]
     avg_claim_minutes = round(sum(with_claim_minutes) / len(with_claim_minutes), 2) if with_claim_minutes else 0
-    claimed_today = len([r for r in rows if r.get('claimed_at') and r['claimed_at'][:10] == datetime.now().strftime('%d/%m/%Y')])
+    claimed_today = len([r for r in rows if r.get('claimed_at') and r['claimed_at'][:10] == today_bangkok_str()])
     return {
         'total_cases': total,
         'claimed_cases': claimed,
@@ -115,6 +115,7 @@ from app.services.dynamic_template_renderer import build_dynamic_template_payloa
 from app.services.dynamic_flex_fields import get_available_fields
 from app.services.alert_case_service import enrich_alert_rows, filter_rows_for_send, mark_rows_sent, claim_case, ensure_tables
 from app.services.claim_security import verify_claim_signature
+from app.services.timezone_utils import format_bangkok, today_bangkok_str, bangkok_now
 
 def ensure_alert_tables():
     return ensure_tables()
@@ -128,6 +129,17 @@ def _public_base_url(request: Request) -> str:
 router=APIRouter()
 templates=Jinja2Templates(directory='app/templates')
 
+
+
+def _normalize_schedule_input(schedule_type: str, cron_value: str | None):
+    raw = (cron_value or '').strip()
+    if schedule_type in ('daily_time', 'every_day_time'):
+        if raw and '.' in raw and ':' not in raw:
+            raw = raw.replace('.', ':')
+        if re.match(r'^\d{1,2}:\d{2}$', raw):
+            hh, mm = raw.split(':', 1)
+            return f"{int(hh):02d}:{mm}"
+    return raw
 def client_ip(request:Request)->str:
     return request.headers.get('x-forwarded-for', request.client.host if request.client else 'unknown').split(',')[0].strip()
 
