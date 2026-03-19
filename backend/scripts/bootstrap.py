@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
-from app.models import Role, Permission, Menu, User
+from app.models import Role, Permission, Menu, User, AlertCase
 from app.core.config import settings
 from app.core.security import hash_password
 
