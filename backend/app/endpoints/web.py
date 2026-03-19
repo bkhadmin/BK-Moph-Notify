@@ -705,7 +705,8 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
     if not q or not t:
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
-    rows = data['rows']
+    rows = enrich_alert_rows(db, data['rows'], str(request.base_url).rstrip('/'))
+    rows = filter_rows_for_send(rows)
     dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
     if dynamic_payload is not None:
         payload = dynamic_payload
@@ -731,7 +732,8 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     if not q or not t:
         raise HTTPException(status_code=404, detail='query or template not found')
     data = preview_query(q.sql_text, max_rows=q.max_rows)
-    rows = data['rows']
+    rows = enrich_alert_rows(db, data['rows'], str(request.base_url).rstrip('/'))
+    rows = filter_rows_for_send(rows)
     dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
     if dynamic_payload is not None:
         messages = dynamic_payload
@@ -741,6 +743,7 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
         messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows]
     try:
         result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
+        mark_rows_sent(db, rows)
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(rows)}')
         return templates.TemplateResponse('admin/notify_test.html', ctx(
             request, db, session,
@@ -909,6 +912,15 @@ async def import_templates_page(request:Request, import_payload:str=Form(''), db
     write_log(db, session.get('username'), client_ip(request), 'template.import', 'success', str(result))
     return RedirectResponse('/templates', status_code=302)
 
+@router.get('/schedules/{job_id}/delete')
+def schedule_delete_get(job_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'schedules')
+    row = get_job_by_id(db, job_id)
+    if row:
+        delete_job(db, row)
+    return RedirectResponse('/schedules', status_code=302)
+
 @router.post('/schedules/{job_id}/delete')
 def schedule_delete(job_id:int, request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
@@ -971,7 +983,7 @@ def dynamic_flex_builder_submit(
             q = get_query_by_id(db, int(approved_query_id))
             if q:
                 data = preview_query(q.sql_text, max_rows=min(q.max_rows or 20, 20))
-                rows = data.get('rows') or []
+                rows = enrich_alert_rows(db, data.get('rows') or [], str(request.base_url).rstrip('/'))
         fields = get_available_fields(rows)
         preview_payload = build_dynamic_template_payload('flex_dynamic', flex_json, alt_text, rows)
         preview_json = json.dumps(preview_payload, ensure_ascii=False, indent=2)
@@ -981,6 +993,57 @@ def dynamic_flex_builder_submit(
         return templates.TemplateResponse('admin/dynamic_flex_builder.html', ctx(request, db, session, form_error=None, form_values=form_values, preview_json=preview_json, fields=fields))
     except Exception as exc:
         return templates.TemplateResponse('admin/dynamic_flex_builder.html', ctx(request, db, session, form_error=str(exc), form_values=form_values, preview_json=preview_json, fields=fields), status_code=400)
+
+
+@router.get('/alerts/cases')
+def alert_cases_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    return templates.TemplateResponse('admin/alert_cases.html', ctx(
+        request, db, session,
+        alert_cases=get_alert_cases(db)
+    ))
+
+@router.get('/alerts/claim')
+def alert_claim_page(request:Request, case_key:str, db:Session=Depends(get_db)):
+    case = get_alert_case_by_key(db, case_key)
+    if not case:
+        raise HTTPException(status_code=404, detail='case not found')
+    return templates.TemplateResponse('public/claim_case.html', {
+        'request': request,
+        'case': case,
+        'error': None,
+        'success': False,
+    })
+
+@router.post('/alerts/claim')
+def alert_claim_submit(request:Request, case_key:str=Form(...), receiver_name:str=Form(''), db:Session=Depends(get_db)):
+    case = get_alert_case_by_key(db, case_key)
+    if not case:
+        raise HTTPException(status_code=404, detail='case not found')
+    if case.status == 'CLAIMED':
+        return templates.TemplateResponse('public/claim_case.html', {
+            'request': request,
+            'case': case,
+            'error': 'เคสนี้มีผู้รับเคสแล้ว',
+            'success': False,
+        })
+    session = get_current_session(request)
+    receiver = (session.get('username') if session else '') or receiver_name.strip()
+    if not receiver:
+        return templates.TemplateResponse('public/claim_case.html', {
+            'request': request,
+            'case': case,
+            'error': 'กรุณาระบุชื่อผู้รับเคส',
+            'success': False,
+        })
+    claim_case(db, case, receiver)
+    return templates.TemplateResponse('public/claim_case.html', {
+        'request': request,
+        'case': case,
+        'error': None,
+        'success': True,
+    })
 
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):

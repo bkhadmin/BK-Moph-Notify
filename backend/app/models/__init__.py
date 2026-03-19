@@ -13,3 +13,5 @@ from app.models.media_file import MediaFile
 from app.models.delivery_status import DeliveryStatus
 from app.models.provider_profile import ProviderProfile
 from app.models.provider_profile_history import ProviderProfileHistory
+
+from app.models.alert_case import AlertCase
