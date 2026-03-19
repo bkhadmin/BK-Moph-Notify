@@ -38,8 +38,8 @@
 
     <div class="mt-3" id="field-daily" style="display:none">
       <label>เวลารายวัน</label>
-      <input class="input" id="daily-time-input" placeholder="17:00 หรือ 17.00" value="{{ form_values.cron_value if form_values and form_values.schedule_type == 'daily' else '' }}">
-      <div class="muted mt-2">ใช้เวลาอย่างเดียว เช่น 06:00 หรือ 17.00</div>
+      <input class="input" id="daily-time-input" placeholder="17:00 หรือ 17:00" value="{{ form_values.cron_value if form_values and form_values.schedule_type == 'daily' else '' }}">
+      <div class="muted mt-2">ใช้เวลาอย่างเดียว เช่น 06:00 หรือ 17:00</div>
     </div>
 
     <div class="mt-3" id="field-interval" style="display:none">
@@ -98,7 +98,7 @@
   <div class="card">
     <h3>คู่มือการตั้งเวลา</h3>
     <div class="item"><strong>ครั้งเดียว</strong><div class="muted">ใส่วันเวลาเต็ม เช่น 2026-03-17 17:00</div></div>
-    <div class="item"><strong>ทุกวันเวลาเดิม</strong><div class="muted">ใส่เวลาอย่างเดียว เช่น 06:00 หรือ 17.00</div></div>
+    <div class="item"><strong>ทุกวันเวลาเดิม</strong><div class="muted">ใส่เวลาอย่างเดียว เช่น 06:00 หรือ 17:00</div></div>
     <div class="item"><strong>ทุก X นาที</strong><div class="muted">กรอกตัวเลขนาที เช่น 30</div></div>
     <div class="item"><strong>Cron</strong><div class="muted">เช่น 0 6 * * * = ทุกวัน 06:00</div></div>
   </div>
