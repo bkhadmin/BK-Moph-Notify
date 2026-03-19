@@ -1,3 +1,64 @@
+
+
+def _fmt_dt(dt):
+    if not dt:
+        return ''
+    try:
+        return dt.strftime('%d/%m/%Y %H:%M:%S')
+    except Exception:
+        return str(dt)
+
+def _minutes_between(start_dt, end_dt):
+    if not start_dt or not end_dt:
+        return None
+    try:
+        return round((end_dt - start_dt).total_seconds() / 60.0, 2)
+    except Exception:
+        return None
+
+def _alert_case_report_rows(cases):
+    rows = []
+    for c in cases or []:
+        sent_at = c.first_sent_at or c.last_sent_at
+        receive_minutes = _minutes_between(sent_at, c.claimed_at)
+        rows.append({
+            'id': c.id,
+            'case_key': c.case_key,
+            'status': c.status,
+            'patient_hn': c.patient_hn or '',
+            'patient_name': c.patient_name or '',
+            'department': c.department or '',
+            'item_name': c.item_name or '',
+            'item_value': c.item_value or '',
+            'report_date': c.report_date_text or '',
+            'report_time': c.report_time_text or '',
+            'message_sent_at': _fmt_dt(sent_at),
+            'claimed_by': c.claimed_by or '',
+            'claimed_at': _fmt_dt(c.claimed_at),
+            'minutes_to_claim': receive_minutes if receive_minutes is not None else '',
+            'sent_count': c.sent_count or 0,
+            'created_at': _fmt_dt(c.created_at),
+        })
+    return rows
+
+def _alert_case_dashboard(rows):
+    total = len(rows)
+    claimed = len([r for r in rows if r.get('status') == 'CLAIMED'])
+    pending = len([r for r in rows if r.get('status') != 'CLAIMED'])
+    with_sent = [r for r in rows if r.get('message_sent_at')]
+    with_claim_minutes = [float(r['minutes_to_claim']) for r in rows if str(r.get('minutes_to_claim')).strip() not in ('', 'None')]
+    avg_claim_minutes = round(sum(with_claim_minutes) / len(with_claim_minutes), 2) if with_claim_minutes else 0
+    claimed_today = len([r for r in rows if r.get('claimed_at') and r['claimed_at'][:10] == datetime.now().strftime('%d/%m/%Y')])
+    return {
+        'total_cases': total,
+        'claimed_cases': claimed,
+        'pending_cases': pending,
+        'sent_cases': len(with_sent),
+        'avg_claim_minutes': avg_claim_minutes,
+        'claimed_today': claimed_today,
+    }
+
+from io import BytesIO
 import json
 import os
 from datetime import datetime
@@ -242,6 +303,7 @@ def reports_page(request:Request, db:Session=Depends(get_db)):
         "schedules": len(get_jobs(db)),
         "approved_queries": len(get_queries(db)),
         "templates": len(get_templates(db)),
+        "alert_cases": len(get_alert_cases(db)),
     }
     charts = {
         "access_status": counter_from_rows(access_rows, "status"),
@@ -1076,13 +1138,47 @@ def dynamic_flex_builder_submit(
 
 
 @router.get('/alerts/cases')
-def alert_cases_page(request:Request, db:Session=Depends(get_db)):
+def alert_cases_page(request:Request, status_filter:str='', db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'notify')
+    cases = get_alert_cases(db)
+    if status_filter:
+        cases = [x for x in cases if (x.status or '') == status_filter]
+    rows = _alert_case_report_rows(cases)
+    dashboard = _alert_case_dashboard(rows)
     return templates.TemplateResponse('admin/alert_cases.html', ctx(
         request, db, session,
-        alert_cases=get_alert_cases(db)
+        alert_cases=cases,
+        alert_case_rows=rows,
+        alert_dashboard=dashboard,
+        status_filter=status_filter,
     ))
+
+@router.get('/alerts/cases/export.csv')
+def alert_cases_export_csv(request:Request, status_filter:str='', db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    cases = get_alert_cases(db)
+    if status_filter:
+        cases = [x for x in cases if (x.status or '') == status_filter]
+    rows = _alert_case_report_rows(cases)
+    content = to_csv_bytes(rows)
+    filename = f"alert_cases_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
+    return Response(content=content, media_type='text/csv; charset=utf-8', headers=headers)
+
+@router.get('/alerts/cases/export.xlsx')
+def alert_cases_export_xlsx(request:Request, status_filter:str='', db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    cases = get_alert_cases(db)
+    if status_filter:
+        cases = [x for x in cases if (x.status or '') == status_filter]
+    rows = _alert_case_report_rows(cases)
+    content = to_xlsx_bytes(rows, sheet_name='alert_cases')
+    filename = f"alert_cases_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
+    return Response(content=content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 @router.get('/alerts/claim')
 def alert_claim_page(request:Request, case_key:str, expires:str='', sig:str='', db:Session=Depends(get_db)):
