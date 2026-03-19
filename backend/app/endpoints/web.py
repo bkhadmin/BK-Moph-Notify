@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.csrf import new_token,valid
 from app.core.session import create_session,get_session,destroy_session
-from app.core.security import verify_password
+from app.core.security import verify_password, hash_password
 from app.db.session import get_db
-from app.repositories.users import get_by_username,get_by_id,get_all as get_users,upsert_provider_user,update_role
+from app.repositories.users import get_by_username,get_by_id,get_all as get_users,upsert_provider_user,update_role,create_local_user,update_user,delete_user
 from app.repositories.roles import get_by_code,get_all as get_roles
 from app.repositories.permissions import get_all as get_permissions
 from app.repositories.access_logs import write_log,get_all as get_access_logs
@@ -138,6 +138,9 @@ def login(request:Request, username:str=Form(...), password:str=Form(...), csrf_
         row=touch_fail(db, ip, settings.ip_ban_threshold)
         write_log(db, username, ip, 'login.local', 'failed', f'invalid credential fail_count={row.fail_count}')
         return render_login(request, 'Username หรือ Password ไม่ถูกต้อง')
+    if user.is_active != 'Y':
+        write_log(db, username, ip, 'login.local', 'failed', 'inactive user')
+        return render_login(request, 'บัญชีผู้ใช้นี้ถูกปิดการใช้งาน')
     clear_fail(db, ip)
     sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
     write_log(db, user.username, ip, 'login.local', 'success', None)
@@ -162,6 +165,9 @@ async def provider_callback(request:Request, code:str|None=None, error:str|None=
         profile=await exchange_profile(code)
         default_role=get_by_code(db, 'user')
         user=upsert_provider_user(db, profile, default_role.id if default_role else None)
+        if user.is_active != 'Y':
+            write_log(db, user.username, ip, 'login.provider', 'failed', 'inactive user')
+            return render_login(request, 'บัญชีผู้ใช้นี้ถูกปิดการใช้งาน')
         sid=create_session({'user_id':user.id,'username':user.username,'display_name':user.display_name,'role_id':user.role_id})
         write_log(db, user.username, ip, 'login.provider', 'success', f"provider_id={profile.get('provider_id')}")
         response=RedirectResponse('/dashboard', status_code=302)
@@ -227,22 +233,67 @@ def reports_page(request:Request, db:Session=Depends(get_db)):
     }
     return templates.TemplateResponse('admin/reports.html', ctx(request, db, session, summary=summary, charts=charts))
 
+
 @router.get('/users')
-def users_page(request:Request, db:Session=Depends(get_db)):
+def users_page(request:Request, edit_id:int|None=None, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'users')
-    return templates.TemplateResponse('admin/users.html', ctx(request, db, session, users=get_users(db), roles=get_roles(db)))
+    edit_user = get_by_id(db, edit_id) if edit_id else None
+    return templates.TemplateResponse('admin/users.html', ctx(
+        request, db, session,
+        users=get_users(db),
+        roles=get_roles(db),
+        edit_user=edit_user
+    ))
 
-@router.post('/users/{user_id}/role')
-def users_update_role(user_id:int, request:Request, role_id:int=Form(...), db:Session=Depends(get_db)):
+@router.post('/users/create')
+def users_create(request:Request, username:str=Form(...), display_name:str=Form(''), password:str=Form(''), role_id:int|None=Form(None), is_active:str=Form('Y'), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'users')
+    if get_by_username(db, username.strip()):
+        raise HTTPException(status_code=400, detail='username already exists')
+    password_hash = hash_password(password) if str(password or '').strip() else None
+    user = create_local_user(db, username=username.strip(), password_hash=password_hash, display_name=display_name.strip() or None, role_id=role_id, is_active=is_active or 'Y')
+    write_log(db, session.get('username'), client_ip(request), 'user.create', 'success', f'user_id={user.id}')
+    return RedirectResponse('/users', status_code=302)
+
+@router.post('/users/{user_id}/update')
+def users_update(user_id:int, request:Request, username:str=Form(...), display_name:str=Form(''), password:str=Form(''), role_id:int|None=Form(None), is_active:str=Form('Y'), db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'users')
     user = get_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail='user not found')
-    update_role(db, user, role_id)
-    write_log(db, session.get('username'), client_ip(request), 'user.role.update', 'success', f'user_id={user_id}, role_id={role_id}')
+    existing = get_by_username(db, username.strip())
+    if existing and existing.id != user.id:
+        raise HTTPException(status_code=400, detail='username already exists')
+    data = {
+        'username': username.strip(),
+        'display_name': display_name.strip() or None,
+        'role_id': role_id,
+        'is_active': is_active or 'Y',
+    }
+    if str(password or '').strip():
+        data['password_hash'] = hash_password(password)
+        if user.auth_type != 'provider':
+            data['auth_type'] = 'local'
+    update_user(db, user, **data)
+    write_log(db, session.get('username'), client_ip(request), 'user.update', 'success', f'user_id={user.id}')
     return RedirectResponse('/users', status_code=302)
+
+@router.get('/users/{user_id}/delete')
+def users_delete_get(user_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'users')
+    user = get_by_id(db, user_id)
+    if user and user.id != session.get('user_id'):
+        delete_user(db, user)
+        write_log(db, session.get('username'), client_ip(request), 'user.delete', 'success', f'user_id={user_id}')
+    return RedirectResponse('/users', status_code=302)
+
+@router.post('/users/{user_id}/delete')
+def users_delete(user_id:int, request:Request, db:Session=Depends(get_db)):
+    return users_delete_get(user_id, request, db)
 
 @router.get('/profiles')
 def profiles_page(request:Request, q:str='', page:int=1, per_page:int=20, db:Session=Depends(get_db)):
@@ -704,24 +755,36 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
     t = get_template_by_id(db, message_template_id)
     if not q or not t:
         raise HTTPException(status_code=404, detail='query or template not found')
-    data = preview_query(q.sql_text, max_rows=q.max_rows)
-    rows = enrich_alert_rows(db, data['rows'], str(request.base_url).rstrip('/'))
-    rows = filter_rows_for_send(rows)
-    dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
-    if dynamic_payload is not None:
-        payload = dynamic_payload
-    elif t.template_type == 'flex':
-        payload = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
-    else:
-        first_row = rows[0] if rows else {}
-        payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
-    return templates.TemplateResponse('admin/notify_test.html', ctx(
-        request, db, session,
-        result=None, send_error=None, validation_errors=None,
-        template_payload=payload, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
-        approved_queries=get_queries(db), message_templates=get_templates(db),
-        media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2) if isinstance(payload, list) and payload and payload[0].get("type") == "flex" else None
-    ))
+    try:
+        ensure_alert_tables()
+        data = preview_query(q.sql_text, max_rows=q.max_rows)
+        rows = enrich_alert_rows(db, data['rows'], str(request.base_url).rstrip('/'))
+        rows = filter_rows_for_send(rows)
+        dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
+        if dynamic_payload is not None:
+            payload = dynamic_payload
+        elif t.template_type == 'flex':
+            payload = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
+        else:
+            first_row = rows[0] if rows else {}
+            payload = build_message_payload(t.template_type, t.content, t.alt_text, first_row)
+        flex_json = json.dumps(payload[0]['contents'], ensure_ascii=False, indent=2) if isinstance(payload, list) and payload and isinstance(payload[0], dict) and payload[0].get('type') == 'flex' else None
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=None, send_error=None, validation_errors=None,
+            template_payload=payload, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=flex_json
+        ))
+    except Exception as exc:
+        write_log(db, session.get('username'), client_ip(request), 'notify.preview.template', 'failed', str(exc))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(
+            request, db, session,
+            result=None, send_error=f'Preview failed: {exc}', validation_errors=None,
+            template_payload=None, data_rows=[], query_visual_rows=[],
+            approved_queries=get_queries(db), message_templates=get_templates(db),
+            media_files=get_media(db), flex_json=None
+        ), status_code=200)
 
 @router.post('/notify/send-from-template')
 async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
@@ -1044,6 +1107,60 @@ def alert_claim_submit(request:Request, case_key:str=Form(...), receiver_name:st
         'error': None,
         'success': True,
     })
+
+
+@router.get('/templates/lab-critical-builder')
+def lab_critical_claim_builder_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    return templates.TemplateResponse('admin/lab_critical_builder.html', ctx(
+        request, db, session,
+        approved_queries=get_queries(db),
+        form_error=None,
+        form_values={},
+        saved=False
+    ))
+
+@router.post('/templates/lab-critical-builder')
+def lab_critical_claim_builder_submit(
+    request:Request,
+    template_name:str=Form(''),
+    approved_query_id:str=Form(''),
+    save_as_template:str=Form('1'),
+    db:Session=Depends(get_db)
+):
+    session=require_session(request)
+    require_menu(db, session, 'templates')
+    form_values = {
+        'template_name': template_name,
+        'approved_query_id': approved_query_id,
+        'save_as_template': save_as_template,
+    }
+    try:
+        if save_as_template == '1' and (template_name or '').strip():
+            create_template(
+                db,
+                template_name.strip(),
+                'lab_critical_claim',
+                json.dumps({'preset':'lab_critical_claim'}, ensure_ascii=False),
+                'แจ้งเตือนค่า LAB วิกฤต'
+            )
+            write_log(db, session.get('username'), client_ip(request), 'template.create.lab_critical_claim', 'success', template_name.strip())
+        return templates.TemplateResponse('admin/lab_critical_builder.html', ctx(
+            request, db, session,
+            approved_queries=get_queries(db),
+            form_error=None,
+            form_values=form_values,
+            saved=True
+        ))
+    except Exception as exc:
+        return templates.TemplateResponse('admin/lab_critical_builder.html', ctx(
+            request, db, session,
+            approved_queries=get_queries(db),
+            form_error=str(exc),
+            form_values=form_values,
+            saved=False
+        ), status_code=400)
 
 @router.get('/logout')
 def logout(request:Request, db:Session=Depends(get_db)):

@@ -1,7 +1,12 @@
 import hashlib
 import json
 from datetime import datetime
+from app.db.base import Base
+from app.db.session import engine
 from app.repositories.alert_cases import get_by_case_key, create_item, update_item
+
+def ensure_tables():
+    Base.metadata.create_all(bind=engine)
 
 def _text(value):
     if value is None:
@@ -24,6 +29,7 @@ def build_case_key(row: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
 
 def ensure_case_for_row(db, row: dict):
+    ensure_tables()
     if not is_lab_alert_row(row):
         return None
     case_key = build_case_key(row)
@@ -46,6 +52,7 @@ def ensure_case_for_row(db, row: dict):
     return case
 
 def enrich_alert_rows(db, rows, base_url: str):
+    ensure_tables()
     out = []
     base_url = (base_url or "").rstrip("/")
     for row in rows or []:
@@ -65,6 +72,7 @@ def filter_rows_for_send(rows):
     return [row for row in (rows or []) if str(row.get("case_status", "NEW")) != "CLAIMED"]
 
 def mark_rows_sent(db, rows):
+    ensure_tables()
     for row in rows or []:
         case_key = row.get("case_key")
         if not case_key:
@@ -83,5 +91,6 @@ def mark_rows_sent(db, rows):
         )
 
 def claim_case(db, case, receiver_name: str):
+    ensure_tables()
     now = datetime.utcnow()
     return update_item(db, case, status="CLAIMED", claimed_by=receiver_name, claimed_at=now)

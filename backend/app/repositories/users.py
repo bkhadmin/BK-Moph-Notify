@@ -12,6 +12,32 @@ def get_by_id(db:Session, user_id:int):
 def get_all(db:Session):
     return db.query(User).order_by(User.id.desc()).all()
 
+def create_local_user(db:Session, username:str, password_hash:str|None, display_name:str|None=None, role_id:int|None=None, is_active:str='Y'):
+    row = User(
+        username=username,
+        password_hash=password_hash,
+        display_name=display_name,
+        auth_type='local',
+        role_id=role_id,
+        is_active=is_active or 'Y',
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+def update_user(db:Session, user:User, **kwargs):
+    for key, value in kwargs.items():
+        if hasattr(user, key):
+            setattr(user, key, value)
+    db.commit()
+    db.refresh(user)
+    return user
+
+def delete_user(db:Session, user:User):
+    db.delete(user)
+    db.commit()
+
 def update_role(db:Session, user:User, role_id:int|None):
     user.role_id = role_id
     db.commit()
@@ -50,6 +76,7 @@ def upsert_provider_user(db:Session, profile:dict, default_role_id:int|None=None
 
     if not user:
         user=User(username=username, auth_type='provider', role_id=default_role_id)
+
         db.add(user)
 
     user.display_name=normalize_display_name(profile)

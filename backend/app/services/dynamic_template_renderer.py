@@ -2,9 +2,13 @@ import json
 from app.services.flex_table_renderer import build_full_table_flex
 from app.services.flex_transform import as_flex_message_payload
 from app.services.dynamic_flex_fields import render_dynamic_flex_content
+from app.services.lab_alert_renderer import build_lab_alert_carousel
 
 def build_dynamic_template_payload(template_type:str, content:str, alt_text:str|None, rows:list[dict]):
     tt = (template_type or "").strip().lower()
+    if tt == "lab_critical_claim":
+        return build_lab_alert_carousel(rows or [])
+
     if tt in ("flex_full_list", "dynamic_full_list"):
         try:
             cfg = json.loads(content or "{}")
