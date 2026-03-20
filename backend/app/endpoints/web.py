@@ -41,6 +41,8 @@ def _alert_case_report_rows(cases):
             'minutes_to_claim': receive_minutes if receive_minutes is not None else '',
             'sent_count': c.sent_count or 0,
             'created_at': _fmt_dt(c.created_at),
+            'claim_notify_sent_at': _fmt_dt(getattr(c, 'claim_notify_sent_at', None)),
+            'claim_notify_status': getattr(c, 'claim_notify_status', '') or '',
         })
     return rows
 
@@ -59,6 +61,7 @@ def _alert_case_dashboard(rows):
         'sent_cases': len(with_sent),
         'avg_claim_minutes': avg_claim_minutes,
         'claimed_today': claimed_today,
+        'claim_notify_success': len([r for r in rows if (r.get('claim_notify_status') or '').lower() == 'success']),
     }
 
 from io import BytesIO
@@ -118,7 +121,8 @@ from app.services.dynamic_template_renderer import build_dynamic_template_payloa
 from app.services.dynamic_flex_fields import get_available_fields
 from app.services.alert_case_service import enrich_alert_rows, filter_rows_for_send, mark_rows_sent, claim_case, ensure_tables
 from app.services.claim_security import verify_claim_signature
-from app.services.timezone_utils import format_bangkok, today_bangkok_str, bangkok_now
+from app.services.timezone_utils import format_bangkok, today_bangkok_str, bangkok_now, utcnow
+from app.services.claim_notify_service import notify_case_claimed
 
 def ensure_alert_tables():
     return ensure_tables()
@@ -1152,6 +1156,17 @@ def dynamic_flex_builder_submit(
         return templates.TemplateResponse('admin/dynamic_flex_builder.html', ctx(request, db, session, form_error=str(exc), form_values=form_values, preview_json=preview_json, fields=fields), status_code=400)
 
 
+
+
+@router.get('/settings/claim-notify')
+def claim_notify_settings_page(request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    return templates.TemplateResponse('admin/claim_notify_settings.html', ctx(
+        request, db, session,
+        claim_notify_enabled=(os.getenv('CLAIM_NOTIFY_ENABLED', 'Y') or 'Y'),
+    ))
+
 @router.get('/alerts/cases')
 def alert_cases_page(request:Request, status_filter:str='', db:Session=Depends(get_db)):
     session=require_session(request)
@@ -1288,10 +1303,28 @@ def alert_claim_submit(request:Request, case_key:str=Form(...), expires:str=Form
             'redirect_line': False,
         })
     claim_case(db, case, receiver)
+    refreshed_case = get_alert_case_by_key(db, case_key) or case
+    claim_notify_error = None
+    try:
+        notify_case_claimed(db, receiver, refreshed_case)
+        if hasattr(refreshed_case, 'claim_notify_status'):
+            refreshed_case.claim_notify_status = 'success'
+            refreshed_case.claim_notify_sent_at = utcnow()
+            refreshed_case.claim_notify_detail = None
+            db.commit()
+    except Exception as exc:
+        claim_notify_error = str(exc)
+        try:
+            if hasattr(refreshed_case, 'claim_notify_status'):
+                refreshed_case.claim_notify_status = 'failed'
+                refreshed_case.claim_notify_detail = str(exc)[:1000]
+                db.commit()
+        except Exception:
+            db.rollback()
     return templates.TemplateResponse('public/claim_case.html', {
         'request': request,
-        'case': case,
-        'error': None,
+        'case': refreshed_case,
+        'error': None if not claim_notify_error else f'รับเคสสำเร็จ แต่แจ้งเตือนหลังรับเคสไม่สำเร็จ: {claim_notify_error}',
         'success': True,
         'redirect_line': False,
     })
