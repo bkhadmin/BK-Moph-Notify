@@ -4,7 +4,6 @@ from app.services.timezone_utils import utcnow
 
 class NotifyRoom(Base):
     __tablename__ = "notify_rooms"
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(150), nullable=False, unique=True)
     room_code = Column(String(80), nullable=True, unique=True)
