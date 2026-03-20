@@ -619,7 +619,7 @@ async def media_upload(request:Request, image:UploadFile=File(...), db:Session=D
 @router.get('/notify/rooms')
 def notify_rooms_page(request:Request, edit_id:int|None=None, db:Session=Depends(get_db)):
     session=require_session(request)
-    require_menu(db, session, 'notify')
+    require_menu(db, session, 'notify_rooms')
     edit_room = get_notify_room_by_id(db, edit_id) if edit_id else None
     return templates.TemplateResponse('admin/notify_rooms.html', ctx(
         request, db, session,
@@ -630,14 +630,14 @@ def notify_rooms_page(request:Request, edit_id:int|None=None, db:Session=Depends
 @router.post('/notify/rooms/create')
 def notify_rooms_create(request:Request, name:str=Form(...), room_code:str=Form(''), client_key:str=Form(...), secret_key:str=Form(...), is_active:str=Form('Y'), note:str=Form(''), db:Session=Depends(get_db)):
     session=require_session(request)
-    require_menu(db, session, 'notify')
+    require_menu(db, session, 'notify_rooms')
     create_notify_room(db, name=name, room_code=room_code, client_key=client_key, secret_key=secret_key, is_active=is_active, note=note)
     return RedirectResponse('/notify/rooms', status_code=302)
 
 @router.post('/notify/rooms/{room_id}/update')
 def notify_rooms_update(room_id:int, request:Request, name:str=Form(...), room_code:str=Form(''), client_key:str=Form(...), secret_key:str=Form(...), is_active:str=Form('Y'), note:str=Form(''), db:Session=Depends(get_db)):
     session=require_session(request)
-    require_menu(db, session, 'notify')
+    require_menu(db, session, 'notify_rooms')
     row = get_notify_room_by_id(db, room_id)
     if not row:
         raise HTTPException(status_code=404, detail='room not found')
@@ -647,7 +647,7 @@ def notify_rooms_update(room_id:int, request:Request, name:str=Form(...), room_c
 @router.get('/notify/rooms/{room_id}/delete')
 def notify_rooms_delete(room_id:int, request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
-    require_menu(db, session, 'notify')
+    require_menu(db, session, 'notify_rooms')
     row = get_notify_room_by_id(db, room_id)
     if row:
         delete_notify_room(db, row)
@@ -1201,7 +1201,7 @@ def dynamic_flex_builder_submit(
 @router.get('/settings/claim-notify')
 def claim_notify_settings_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
-    require_menu(db, session, 'notify')
+    require_menu(db, session, 'claim_notify_settings')
     return templates.TemplateResponse('admin/claim_notify_settings.html', ctx(
         request, db, session,
         claim_notify_enabled=(os.getenv('CLAIM_NOTIFY_ENABLED', 'Y') or 'Y'),
