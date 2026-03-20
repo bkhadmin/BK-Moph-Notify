@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="page-header"><div><h1 class="page-title">Claim Notify Settings</h1><div class="muted">การแจ้งเตือนอัตโนมัติหลังมีผู้รับเคส</div></div></div>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Claim Notify Settings</h1>
+    <div class="muted">การแจ้งเตือนอัตโนมัติหลังมีผู้รับเคส</div>
+  </div>
+</div>
 <div class="card mt-6">
-  <div class="item"><strong>Claim Notify Enabled</strong><div class="muted">ค่าปัจจุบันจาก environment: {{ claim_notify_enabled }}</div></div>
-  <div class="item"><strong>Notify Rooms</strong><div class="muted">จำนวนห้องที่เปิดใช้งาน: {{ (notify_rooms or [])|length }}</div></div>
+  <div class="item"><strong>Claim Notify Enabled</strong><div class="muted">{{ claim_notify_enabled }}</div></div>
+  <div class="item"><strong>Notify Rooms</strong><div class="muted">{{ (notify_rooms or [])|length }} ห้อง</div></div>
 </div>
 {% endblock %}

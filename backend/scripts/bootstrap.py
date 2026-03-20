@@ -1,3 +1,4 @@
+from app.repositories.permissions import ensure_module53_permissions
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.db.base import Base
@@ -56,6 +57,7 @@ def seed():
         for code,name,path in MENUS:
             if not db.query(Menu).filter(Menu.code==code).first():
                 db.add(Menu(code=code,name=name,path=path))
+        ensure_module53_permissions(db)
         db.commit()
         db.execute(text('DELETE FROM role_permissions'))
         for role_code, perm_codes in ROLE_PERMS.items():
