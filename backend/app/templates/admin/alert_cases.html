@@ -19,6 +19,7 @@
   <div class="stat-card success"><div class="stat-label">Claimed Cases</div><div class="stat-value">{{ alert_dashboard.claimed_cases }}</div></div>
   <div class="stat-card warning"><div class="stat-label">Pending Cases</div><div class="stat-value">{{ alert_dashboard.pending_cases }}</div></div>
   <div class="stat-card danger"><div class="stat-label">Avg. Claim (min)</div><div class="stat-value">{{ alert_dashboard.avg_claim_minutes }}</div></div>
+  <div class="stat-card success"><div class="stat-label">Claim Notify Success</div><div class="stat-value">{{ alert_dashboard.claim_notify_success }}</div></div>
 </div>
 
 <div class="card mt-6">
@@ -37,6 +38,8 @@
         <th>Claimed At</th>
         <th>Minutes to Claim</th>
         <th>Sent Count</th>
+        <th>Claim Notify</th>
+        <th>Claim Notify Sent At</th>
         <th>Action</th>
       </tr>
     </thead>
@@ -55,6 +58,8 @@
         <td>{{ r.claimed_at or '-' }}</td>
         <td>{{ r.minutes_to_claim or '-' }}</td>
         <td>{{ r.sent_count or 0 }}</td>
+        <td>{{ r.claim_notify_status or '-' }}</td>
+        <td>{{ r.claim_notify_sent_at or '-' }}</td>
         <td>
           <div class="page-actions">
             <a class="btn secondary" href="/alerts/cases/{{ r.id }}/edit">Edit</a>
@@ -63,7 +68,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="13" class="muted">No cases</td></tr>
+      <tr><td colspan="15" class="muted">No cases</td></tr>
       {% endfor %}
     </tbody>
   </table>

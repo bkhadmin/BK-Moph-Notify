@@ -29,6 +29,7 @@
       <div class="err row">{{ error }}</div>
     {% endif %}
     {% if success %}
+    <div class="alert success">รับเคสสำเร็จ{% if case and case.claim_notify_status == 'success' %} และแจ้งเตือนเรียบร้อยแล้ว{% endif %}</div>
       <div class="ok row">รับเคสเรียบร้อยแล้ว โดย {{ case.claimed_by }} เมื่อ {{ case.claimed_at }}</div>
     {% endif %}
 
