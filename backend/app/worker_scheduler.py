@@ -14,6 +14,7 @@ from app.services.flex_template_merger import build_flex_payload_from_template_r
 from app.services.dynamic_template_renderer import build_dynamic_template_payload
 from app.services.moph_notify import send_messages
 from app.services.scheduler_service import compute_following_next_run, scheduler_now
+from app.services.timezone_utils import bangkok_now, utcnow
 from app.services.template_render import build_message_payload
 
 POLL_SECONDS = 30
