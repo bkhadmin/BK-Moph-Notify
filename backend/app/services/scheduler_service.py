@@ -1,5 +1,14 @@
 from datetime import datetime, timedelta
 
+def _normalize_daily_time(value):
+    raw = (value or "").strip()
+    if "." in raw and ":" not in raw:
+        raw = raw.replace(".", ":")
+    if raw and ":" in raw:
+        hh, mm = raw.split(":", 1)
+        return f"{int(hh):02d}:{int(mm):02d}"
+    return raw
+
 def parse_next_run(schedule_type, cron_value=None, interval_minutes=None, base=None):
     base = base or datetime.now()
 
@@ -14,9 +23,7 @@ def parse_next_run(schedule_type, cron_value=None, interval_minutes=None, base=N
         return base + timedelta(minutes=minutes)
 
     if schedule_type in ("daily_time", "every_day_time"):
-        raw = (cron_value or "").strip()
-        if "." in raw and ":" not in raw:
-            raw = raw.replace(".", ":")
+        raw = _normalize_daily_time(cron_value)
         hh, mm = raw.split(":", 1)
         candidate = base.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
         if candidate <= base:
@@ -30,6 +37,14 @@ def parse_next_run(schedule_type, cron_value=None, interval_minutes=None, base=N
         return base + timedelta(days=30)
 
     return base + timedelta(minutes=int(interval_minutes or 5))
+
+def compute_following_next_run(job, base=None):
+    return parse_next_run(
+        getattr(job, "schedule_type", None),
+        getattr(job, "cron_value", None),
+        getattr(job, "interval_minutes", None),
+        base=base or datetime.now(),
+    )
 
 def scheduler_now():
     return datetime.now()
