@@ -12,7 +12,10 @@ def _minutes_between(start_dt, end_dt):
     if not start_dt or not end_dt:
         return None
     try:
-        return round((end_dt - start_dt).total_seconds() / 60.0, 2)
+        from app.services.timezone_utils import to_bangkok
+        s = to_bangkok(start_dt)
+        e = to_bangkok(end_dt)
+        return round((e - s).total_seconds() / 60.0, 2)
     except Exception:
         return None
 
@@ -89,7 +92,7 @@ from app.repositories.media_files import create_item as create_media, get_all as
 from app.repositories.delivery_statuses import get_all as get_delivery_statuses
 from app.repositories.provider_profiles import get_all as get_provider_profiles, get_by_id as get_provider_profile_by_id, update_profile_manual
 from app.repositories.provider_profile_histories import get_all_for_profile
-from app.repositories.alert_cases import get_all as get_alert_cases, get_by_case_key as get_alert_case_by_key
+from app.repositories.alert_cases import get_all as get_alert_cases, get_by_case_key as get_alert_case_by_key, get_by_id as get_alert_case_by_id, update_item as update_alert_case
 
 from app.worker_scheduler import run_job_now
 from app.services.rbac import allowed_menu
@@ -133,7 +136,7 @@ templates=Jinja2Templates(directory='app/templates')
 
 def _normalize_schedule_input(schedule_type: str, cron_value: str | None):
     raw = (cron_value or '').strip()
-    if schedule_type in ('daily_time', 'every_day_time'):
+    if schedule_type in ('daily', 'daily_time', 'every_day_time'):
         if raw and '.' in raw and ':' not in raw:
             raw = raw.replace('.', ':')
         if re.match(r'^\d{1,2}:\d{2}$', raw):
@@ -1191,6 +1194,46 @@ def alert_cases_export_xlsx(request:Request, status_filter:str='', db:Session=De
     filename = f"alert_cases_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
     return Response(content=content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
+
+
+@router.get('/alerts/cases/{case_id}/edit')
+def alert_case_edit_page(case_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    case = get_alert_case_by_id(db, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail='case not found')
+    return templates.TemplateResponse('admin/alert_case_edit.html', ctx(
+        request, db, session,
+        alert_case=case
+    ))
+
+@router.post('/alerts/cases/{case_id}/edit')
+def alert_case_edit_submit(case_id:int, request:Request, status_value:str=Form('NEW'), claimed_by:str=Form(''), claimed_at:str=Form(''), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    case = get_alert_case_by_id(db, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail='case not found')
+    update_data = {'status': status_value or 'NEW', 'claimed_by': claimed_by.strip() or None}
+    if (claimed_at or '').strip():
+        try:
+            from datetime import datetime
+            update_data['claimed_at'] = datetime.fromisoformat(claimed_at.strip().replace('T', ' '))
+        except Exception:
+            pass
+    update_alert_case(db, case, **update_data)
+    return RedirectResponse('/alerts/cases', status_code=302)
+
+@router.get('/alerts/cases/{case_id}/delete')
+def alert_case_delete(case_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    case = get_alert_case_by_id(db, case_id)
+    if case:
+        db.delete(case)
+        db.commit()
+    return RedirectResponse('/alerts/cases', status_code=302)
 
 @router.get('/alerts/claim')
 def alert_claim_page(request:Request, case_key:str, expires:str='', sig:str='', db:Session=Depends(get_db)):
