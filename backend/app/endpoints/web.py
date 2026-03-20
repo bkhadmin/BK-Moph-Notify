@@ -92,6 +92,7 @@ from app.repositories.schedule_jobs import get_all as get_jobs, create_item as c
 from app.repositories.schedule_job_logs import get_recent as get_schedule_logs
 from app.repositories.send_logs import get_all as get_send_logs
 from app.repositories.media_files import create_item as create_media, get_all as get_media
+from app.repositories.notify_rooms import get_all as get_notify_rooms, get_active as get_active_notify_rooms, get_by_id as get_notify_room_by_id, create_item as create_notify_room, update_item as update_notify_room, delete_item as delete_notify_room
 from app.repositories.delivery_statuses import get_all as get_delivery_statuses
 from app.repositories.provider_profiles import get_all as get_provider_profiles, get_by_id as get_provider_profile_by_id, update_profile_manual
 from app.repositories.provider_profile_histories import get_all_for_profile
@@ -284,7 +285,7 @@ async def notify_status_callback(request:Request, db:Session=Depends(get_db)):
 def dashboard(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'dashboard')
-    return templates.TemplateResponse('admin/dashboard.html', ctx(request, db, session, users=get_users(db), logs=get_access_logs(db), send_logs=get_send_logs(db), jobs=get_jobs(db), media_files=get_media(db), delivery_statuses=get_delivery_statuses(db), provider_profiles=get_provider_profiles(db)))
+    return templates.TemplateResponse('admin/dashboard.html', ctx(request, db, session, users=get_users(db), logs=get_access_logs(db), send_logs=get_send_logs(db), jobs=get_jobs(db), media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), delivery_statuses=get_delivery_statuses(db), provider_profiles=get_provider_profiles(db)))
 
 @router.get('/system/connections')
 async def system_connections(request:Request, db:Session=Depends(get_db)):
@@ -553,7 +554,7 @@ def templates_page(request:Request, edit_id:int|None=None, db:Session=Depends(ge
     require_menu(db, session, 'templates')
     flex_sample = '{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"สวัสดี {name}"},{"type":"text","text":"หน่วยงาน {organization_name}","size":"sm"}]}}'
     edit_row = get_template_by_id(db, edit_id) if edit_id else None
-    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=None, media_files=get_media(db), flex_sample=flex_sample, edit_row=edit_row))
+    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=None, media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_sample=flex_sample, edit_row=edit_row))
 
 @router.post('/templates')
 def create_template_page(request:Request, name:str=Form(...), template_type:str=Form(...), content:str=Form(...), alt_text:str=Form(''), db:Session=Depends(get_db)):
@@ -593,13 +594,13 @@ def render_template_page(request:Request, content:str=Form(...), variables_json:
     render_result = render_text_template(content, variables)
     write_log(db, session.get('username'), client_ip(request), 'template.render', 'success', None)
     flex_sample = '{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[{"type":"text","text":"สวัสดี {name}"},{"type":"text","text":"หน่วยงาน {organization_name}","size":"sm"}]}}'
-    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=render_result, media_files=get_media(db), flex_sample=flex_sample, edit_row=None))
+    return templates.TemplateResponse('admin/templates.html', ctx(request, db, session, message_templates=get_templates(db), render_result=render_result, media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_sample=flex_sample, edit_row=None))
 
 @router.get('/media')
 def media_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'media')
-    return templates.TemplateResponse('admin/media.html', ctx(request, db, session, media_files=get_media(db)))
+    return templates.TemplateResponse('admin/media.html', ctx(request, db, session, media_files=get_media(db), notify_rooms=get_active_notify_rooms(db)))
 
 @router.post('/media')
 async def media_upload(request:Request, image:UploadFile=File(...), db:Session=Depends(get_db)):
@@ -613,6 +614,45 @@ async def media_upload(request:Request, image:UploadFile=File(...), db:Session=D
     write_log(db, session.get('username'), client_ip(request), 'media.upload', 'success', saved['public_url'])
     return RedirectResponse('/media', status_code=302)
 
+
+
+@router.get('/notify/rooms')
+def notify_rooms_page(request:Request, edit_id:int|None=None, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    edit_room = get_notify_room_by_id(db, edit_id) if edit_id else None
+    return templates.TemplateResponse('admin/notify_rooms.html', ctx(
+        request, db, session,
+        notify_rooms=get_notify_rooms(db),
+        edit_room=edit_room,
+    ))
+
+@router.post('/notify/rooms/create')
+def notify_rooms_create(request:Request, name:str=Form(...), room_code:str=Form(''), client_key:str=Form(...), secret_key:str=Form(...), is_active:str=Form('Y'), note:str=Form(''), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    create_notify_room(db, name=name, room_code=room_code, client_key=client_key, secret_key=secret_key, is_active=is_active, note=note)
+    return RedirectResponse('/notify/rooms', status_code=302)
+
+@router.post('/notify/rooms/{room_id}/update')
+def notify_rooms_update(room_id:int, request:Request, name:str=Form(...), room_code:str=Form(''), client_key:str=Form(...), secret_key:str=Form(...), is_active:str=Form('Y'), note:str=Form(''), db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    row = get_notify_room_by_id(db, room_id)
+    if not row:
+        raise HTTPException(status_code=404, detail='room not found')
+    update_notify_room(db, row, name=name.strip(), room_code=(room_code or '').strip() or None, client_key=client_key.strip(), secret_key=secret_key.strip(), is_active=is_active or 'Y', note=(note or '').strip() or None)
+    return RedirectResponse('/notify/rooms', status_code=302)
+
+@router.get('/notify/rooms/{room_id}/delete')
+def notify_rooms_delete(room_id:int, request:Request, db:Session=Depends(get_db)):
+    session=require_session(request)
+    require_menu(db, session, 'notify')
+    row = get_notify_room_by_id(db, room_id)
+    if row:
+        delete_notify_room(db, row)
+    return RedirectResponse('/notify/rooms', status_code=302)
+
 @router.get('/notify/test')
 def notify_page(request:Request, flex_json:str|None=None, db:Session=Depends(get_db)):
     session=require_session(request)
@@ -624,7 +664,7 @@ def notify_page(request:Request, flex_json:str|None=None, db:Session=Depends(get
             {"type":"text","text":"รายละเอียดข้อความ", "wrap":True, "margin":"md"}
         ]}
     }, ensure_ascii=False, indent=2)
-    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=default_flex))
+    return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=None, template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=default_flex))
 
 @router.post('/notify/test')
 async def notify_send(request:Request, message_text:str=Form(...), db:Session=Depends(get_db)):
@@ -634,10 +674,10 @@ async def notify_send(request:Request, message_text:str=Form(...), db:Session=De
     try:
         result, _ = await send_with_log(db, session.get('username'), payload, 'manual text send')
         write_log(db, session.get('username'), client_ip(request), 'notify.send', 'success', 'manual text send')
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=None))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send', 'failed', str(exc))
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=None))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=None))
 
 @router.post('/notify/send-flex')
 async def notify_send_flex(request:Request, flex_json:str=Form(...), db:Session=Depends(get_db)):
@@ -651,10 +691,10 @@ async def notify_send_flex(request:Request, flex_json:str=Form(...), db:Session=
             raise ValueError("Flex validation failed: " + "; ".join(errors))
         result, _ = await send_with_log(db, session.get('username'), payload, 'manual flex send')
         write_log(db, session.get('username'), client_ip(request), 'notify.send.flex', 'success', 'manual flex send')
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, validation_errors=None, template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=result, send_error=None, validation_errors=None, template_payload=payload, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=flex_json))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.flex', 'failed', str(exc))
-        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), validation_errors=None, template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), flex_json=flex_json))
+        return templates.TemplateResponse('admin/notify_test.html', ctx(request, db, session, result=None, send_error=str(exc), validation_errors=None, template_payload=None, data_rows=None, query_visual_rows=None, approved_queries=get_queries(db), message_templates=get_templates(db), media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=flex_json))
 
 @router.post('/notify/flex-builder')
 def notify_flex_builder(
@@ -741,7 +781,7 @@ def notify_flex_builder(
         result=None, send_error=None, validation_errors=None,
         template_payload=None, data_rows=None, query_visual_rows=None,
         approved_queries=get_queries(db), message_templates=get_templates(db),
-        media_files=get_media(db), flex_json=flex_json
+        media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=flex_json
     ))
 
 @router.post('/notify/validate-flex')
@@ -761,7 +801,7 @@ def notify_validate_flex(request:Request, flex_json:str=Form(...), db:Session=De
         result=None, send_error=None, validation_errors=validation_errors,
         template_payload=None, data_rows=None, query_visual_rows=None,
         approved_queries=get_queries(db), message_templates=get_templates(db),
-        media_files=get_media(db), flex_json=flex_json
+        media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=flex_json
     ))
 
 @router.post('/notify/send-minimal-flex')
@@ -777,7 +817,7 @@ async def notify_send_minimal_flex(request:Request, db:Session=Depends(get_db)):
             result=result, send_error=None, validation_errors=[],
             template_payload=payload, data_rows=None, query_visual_rows=None,
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
         ))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.minimal_flex', 'failed', str(exc))
@@ -786,7 +826,7 @@ async def notify_send_minimal_flex(request:Request, db:Session=Depends(get_db)):
             result=None, send_error=str(exc), validation_errors=None,
             template_payload=payload, data_rows=None, query_visual_rows=None,
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
         ))
 
 @router.post('/notify/auto-flex-preview')
@@ -808,7 +848,7 @@ def notify_auto_flex_preview(
         result=None, send_error=None, template_payload=None,
         data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
         approved_queries=get_queries(db), message_templates=get_templates(db),
-        media_files=get_media(db), flex_json=flex_json
+        media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=flex_json
     ))
 
 @router.post('/notify/auto-flex-send')
@@ -832,7 +872,7 @@ async def notify_auto_flex_send(
             result=result, send_error=None, template_payload=payload,
             data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
         ))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.auto_flex', 'failed', str(exc))
@@ -841,12 +881,12 @@ async def notify_auto_flex_send(
             result=None, send_error=str(exc), template_payload=payload,
             data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=json.dumps(payload[0]["contents"], ensure_ascii=False, indent=2)
         ))
 
 
 @router.post('/notify/preview')
-def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
+def notify_preview(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), notify_room_id:int|None=Form(None), db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'notify')
     q = get_query_by_id(db, approved_query_id)
@@ -872,7 +912,7 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
             result=None, send_error=None, validation_errors=None,
             template_payload=payload, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=flex_json
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=flex_json
         ))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.preview.template', 'failed', str(exc))
@@ -881,11 +921,11 @@ def notify_preview(request:Request, approved_query_id:int=Form(...), message_tem
             result=None, send_error=f'Preview failed: {exc}', validation_errors=None,
             template_payload=None, data_rows=[], query_visual_rows=[],
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=None
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=None
         ), status_code=200)
 
 @router.post('/notify/send-from-template')
-async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), db:Session=Depends(get_db)):
+async def notify_send_from_template(request:Request, approved_query_id:int=Form(...), message_template_id:int=Form(...), notify_room_id:int|None=Form(None), db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'notify')
     q = get_query_by_id(db, approved_query_id)
@@ -903,7 +943,7 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
     else:
         messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows]
     try:
-        result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}')
+        result, _ = await send_with_log(db, session.get('username'), messages, f'approved_query_id={q.id}, template_id={t.id}', notify_room_id=notify_room_id)
         mark_rows_sent(db, rows)
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'success', f'rows={len(rows)}')
         return templates.TemplateResponse('admin/notify_test.html', ctx(
@@ -911,7 +951,7 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
             result=result, send_error=None, validation_errors=None,
             template_payload=messages, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=json.dumps(messages[0]["contents"], ensure_ascii=False, indent=2) if isinstance(messages, list) and messages and messages[0].get("type") == "flex" else None
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=json.dumps(messages[0]["contents"], ensure_ascii=False, indent=2) if isinstance(messages, list) and messages and messages[0].get("type") == "flex" else None
         ))
     except Exception as exc:
         write_log(db, session.get('username'), client_ip(request), 'notify.send.template', 'failed', str(exc))
@@ -920,7 +960,7 @@ async def notify_send_from_template(request:Request, approved_query_id:int=Form(
             result=None, send_error=str(exc), validation_errors=None,
             template_payload=messages, data_rows=rows[:10], query_visual_rows=_query_visual_rows(rows),
             approved_queries=get_queries(db), message_templates=get_templates(db),
-            media_files=get_media(db), flex_json=json.dumps(messages[0]["contents"], ensure_ascii=False, indent=2) if isinstance(messages, list) and messages and messages[0].get("type") == "flex" else None
+            media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), flex_json=json.dumps(messages[0]["contents"], ensure_ascii=False, indent=2) if isinstance(messages, list) and messages and messages[0].get("type") == "flex" else None
         ))
 
 
