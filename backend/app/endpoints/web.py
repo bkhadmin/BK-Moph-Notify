@@ -600,7 +600,7 @@ def render_template_page(request:Request, content:str=Form(...), variables_json:
 def media_page(request:Request, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'media')
-    return templates.TemplateResponse('admin/media.html', ctx(request, db, session, media_files=get_media(db), notify_rooms=get_active_notify_rooms(db), notify_rooms=get_active_notify_rooms(db)))
+    return templates.TemplateResponse('admin/media.html', ctx(request, db, session, media_files=get_media(db), notify_rooms=get_active_notify_rooms(db)))
 
 @router.post('/media')
 async def media_upload(request:Request, image:UploadFile=File(...), db:Session=Depends(get_db)):

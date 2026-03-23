@@ -3,7 +3,7 @@ from app.repositories.send_logs import create_log, update_log_status
 from app.repositories.delivery_statuses import create_item as create_delivery_status
 from app.services.moph_notify import send_messages
 
-async def send_with_log(db, actor:str|None, messages:list[dict], detail:str):
+async def send_with_log(db, username, messages, detail, notify_room_id=None):
     log = create_log(db, actor, 'pending', json.dumps(messages, ensure_ascii=False), None, detail, retry_count=0)
     try:
         result = await send_messages(messages, retries=3)
