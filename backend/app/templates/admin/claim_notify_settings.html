@@ -12,18 +12,9 @@
 </div>
 
 <div class="stat-grid mt-6">
-  <div class="stat-card">
-    <div class="stat-label">Claim Notify Enabled</div>
-    <div class="stat-value">{{ claim_notify_enabled }}</div>
-  </div>
-  <div class="stat-card success">
-    <div class="stat-label">Notify Rooms ทั้งหมด</div>
-    <div class="stat-value">{{ (notify_rooms or [])|length }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Notify Rooms ที่ Active</div>
-    <div class="stat-value">{{ (active_notify_rooms or [])|length }}</div>
-  </div>
+  <div class="stat-card"><div class="stat-label">Claim Notify Enabled</div><div class="stat-value">{{ claim_notify_enabled }}</div></div>
+  <div class="stat-card success"><div class="stat-label">Notify Rooms ทั้งหมด</div><div class="stat-value">{{ (notify_rooms or [])|length }}</div></div>
+  <div class="stat-card"><div class="stat-label">Notify Rooms ที่ Active</div><div class="stat-value">{{ (active_notify_rooms or [])|length }}</div></div>
 </div>
 
 <div class="grid-2 mt-6">
@@ -33,32 +24,22 @@
     <div class="item"><strong>สิ่งที่จะแจ้ง</strong><div class="muted">ชื่อผู้ป่วย, HN, รายการ, ค่า, แผนก, ผู้รับเคส, เวลารับเคส</div></div>
     <div class="item"><strong>การตั้งค่า</strong><div class="muted">ตั้งค่า <code>CLAIM_NOTIFY_ENABLED=Y</code> ใน .env แล้ว restart ระบบ</div></div>
   </div>
-
   <div class="card">
     <h3>การเลือกห้องส่ง</h3>
     <div class="item"><strong>Base URL / Send Path</strong><div class="muted">ยังคงอ่านจาก .env ตามเดิม</div></div>
-    <div class="item"><strong>Client Key / Secret Key</strong><div class="muted">เลือกอ่านจากฐานข้อมูลห้องส่งที่หน้า MOPH Notify</div></div>
-    <div class="item"><strong>Fallback</strong><div class="muted">ถ้าไม่เลือกห้อง ระบบจะ fallback ไปใช้ค่าจาก .env</div></div>
+    <div class="item"><strong>Client Key / Secret Key</strong><div class="muted">เลือกอ่านจากฐานข้อมูลห้องส่งที่หน้า MOPH Notify และ Schedules</div></div>
+    <div class="item"><strong>Fallback</strong><div class="muted">ถ้าไม่เลือกห้อง ระบบจะ fallback ไปใช้ค่า default จาก .env</div></div>
   </div>
 </div>
 
 <div class="card mt-6">
   <h3>Notify Rooms</h3>
   <table class="table">
-    <thead>
-      <tr><th>Name</th><th>Code</th><th>Status</th><th>Note</th></tr>
-    </thead>
+    <thead><tr><th>Name</th><th>Code</th><th>Status</th><th>Note</th></tr></thead>
     <tbody>
       {% for room in notify_rooms or [] %}
-      <tr>
-        <td>{{ room.name }}</td>
-        <td>{{ room.room_code or '-' }}</td>
-        <td><span class="badge {% if room.is_active == 'Y' %}success{% else %}danger{% endif %}">{{ room.is_active }}</span></td>
-        <td>{{ room.note or '-' }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="muted">No rooms</td></tr>
-      {% endfor %}
+      <tr><td>{{ room.name }}</td><td>{{ room.room_code or '-' }}</td><td><span class="badge {% if room.is_active == 'Y' %}success{% else %}danger{% endif %}">{{ room.is_active }}</span></td><td>{{ room.note or '-' }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">No rooms</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

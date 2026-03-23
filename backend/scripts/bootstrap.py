@@ -38,8 +38,17 @@ ROLE_PERMS={
     'user':{'menu.dashboard','menu.queries','menu.templates'}
 }
 
+
+def ensure_module59_schema():
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE schedule_jobs ADD COLUMN notify_room_id INT NULL"))
+        except Exception:
+            pass
+
 def seed():
     Base.metadata.create_all(bind=engine)
+    ensure_module59_schema()
     ensure_module59_schema()
     db:Session=SessionLocal()
     try:

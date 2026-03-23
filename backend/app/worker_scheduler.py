@@ -2,7 +2,6 @@ import asyncio
 import json
 import time
 from datetime import timedelta
-
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.repositories.schedule_jobs import get_due_jobs, get_by_id, update_item
@@ -53,26 +52,11 @@ def _safe_create_log(db, **kwargs):
         db.rollback()
 
 def _finalize_success(db, job, now, rows, messages, result):
-    _safe_create_log(
-        db,
-        schedule_job_id=job.id,
-        run_at=now,
-        status="success",
-        rows_returned=len(rows),
-        sent_count=len(messages),
-        detail_json=json.dumps(result, ensure_ascii=False),
-    )
+    _safe_create_log(db, schedule_job_id=job.id, run_at=now, status="success", rows_returned=len(rows), sent_count=len(messages), detail_json=json.dumps(result, ensure_ascii=False))
     cfg = _job_config(job)
     cfg["retry_count"] = 0
     next_run = compute_following_next_run(job, base=now)
-    update_item(
-        db,
-        job,
-        last_run_at=now,
-        next_run_at=next_run,
-        is_active="N" if job.schedule_type == "once" else job.is_active,
-        payload_json=json.dumps(cfg, ensure_ascii=False),
-    )
+    update_item(db, job, last_run_at=now, next_run_at=next_run, is_active="N" if job.schedule_type == "once" else job.is_active, payload_json=json.dumps(cfg, ensure_ascii=False))
 
 def _finalize_failure(db, job, now, rows, messages, exc):
     db.rollback()
@@ -80,30 +64,14 @@ def _finalize_failure(db, job, now, rows, messages, exc):
     retry_limit = int(cfg.get("retry_limit", 3))
     retry_count = int(cfg.get("retry_count", 0)) + 1
     cfg["retry_count"] = retry_count
-    _safe_create_log(
-        db,
-        schedule_job_id=job.id,
-        run_at=now,
-        status="failed",
-        rows_returned=len(rows) if rows else 0,
-        sent_count=len(messages) if messages else 0,
-        error_message=str(exc),
-        detail_json=json.dumps(cfg, ensure_ascii=False),
-    )
+    _safe_create_log(db, schedule_job_id=job.id, run_at=now, status="failed", rows_returned=len(rows) if rows else 0, sent_count=len(messages) if messages else 0, error_message=str(exc), detail_json=json.dumps(cfg, ensure_ascii=False))
     if retry_count < retry_limit:
         next_run = now + timedelta(minutes=5)
         update_item(db, job, last_run_at=now, next_run_at=next_run, payload_json=json.dumps(cfg, ensure_ascii=False))
     else:
         cfg["retry_count"] = 0
         next_run = compute_following_next_run(job, base=now) if job.schedule_type != "once" else None
-        update_item(
-            db,
-            job,
-            last_run_at=now,
-            next_run_at=next_run,
-            is_active="N" if job.schedule_type == "once" else job.is_active,
-            payload_json=json.dumps(cfg, ensure_ascii=False),
-        )
+        update_item(db, job, last_run_at=now, next_run_at=next_run, is_active="N" if job.schedule_type == "once" else job.is_active, payload_json=json.dumps(cfg, ensure_ascii=False))
 
 def execute_job(db, job):
     now = scheduler_now()
