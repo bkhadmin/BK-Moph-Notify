@@ -49,7 +49,6 @@ def ensure_module59_schema():
 def seed():
     Base.metadata.create_all(bind=engine)
     ensure_module59_schema()
-    ensure_module59_schema()
     db:Session=SessionLocal()
     try:
         role_map={}
