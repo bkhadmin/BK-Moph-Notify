@@ -5,6 +5,10 @@
     <h1 class="page-title">MOPH Notify Rooms</h1>
     <div class="muted">จัดการชื่อห้องและเก็บ client key / secret key แยกตามห้องในฐานข้อมูล</div>
   </div>
+  <div class="page-actions">
+    <a class="btn secondary" href="/settings/claim-notify">Claim Notify Settings</a>
+    <a class="btn secondary" href="/notify/test">Open MOPH Notify</a>
+  </div>
 </div>
 
 <div class="grid-2 mt-6">
@@ -27,6 +31,7 @@
     <h3>วิธีใช้งาน</h3>
     <div class="item"><strong>Base URL และ Send Path</strong><div class="muted">ยังคงอ่านจาก .env ตามเดิม</div></div>
     <div class="item"><strong>Client Key / Secret Key</strong><div class="muted">จะอ่านจากห้องที่เลือกตอนส่งข้อความ</div></div>
+    <div class="item"><strong>Default fallback</strong><div class="muted">ถ้าไม่เลือกห้อง ระบบจะ fallback ไปใช้ค่าจาก .env</div></div>
   </div>
 </div>
 
