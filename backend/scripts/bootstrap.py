@@ -40,6 +40,7 @@ ROLE_PERMS={
 
 def seed():
     Base.metadata.create_all(bind=engine)
+    ensure_module59_schema()
     db:Session=SessionLocal()
     try:
         role_map={}
@@ -72,3 +73,13 @@ def seed():
 
 if __name__=='__main__':
     seed()
+
+
+from sqlalchemy import text
+
+def ensure_module59_schema():
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE schedule_jobs ADD COLUMN notify_room_id INT NULL"))
+        except Exception:
+            pass

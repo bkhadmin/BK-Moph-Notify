@@ -1,7 +1,7 @@
 import asyncio
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
@@ -14,7 +14,6 @@ from app.services.flex_template_merger import build_flex_payload_from_template_r
 from app.services.dynamic_template_renderer import build_dynamic_template_payload
 from app.services.moph_notify import send_messages
 from app.services.scheduler_service import compute_following_next_run, scheduler_now
-from app.services.timezone_utils import bangkok_now, utcnow
 from app.services.template_render import build_message_payload
 
 POLL_SECONDS = 30
@@ -44,8 +43,8 @@ def _build_messages(db, job):
         messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows[:10]]
     return rows, messages
 
-def _send_messages_sync(messages):
-    return asyncio.run(send_messages(messages))
+def _send_messages_sync(db, job, messages):
+    return asyncio.run(send_messages(messages, db=db, notify_room_id=getattr(job, "notify_room_id", None), retries=3))
 
 def _safe_create_log(db, **kwargs):
     try:
@@ -57,6 +56,7 @@ def _finalize_success(db, job, now, rows, messages, result):
     _safe_create_log(
         db,
         schedule_job_id=job.id,
+        run_at=now,
         status="success",
         rows_returned=len(rows),
         sent_count=len(messages),
@@ -64,7 +64,7 @@ def _finalize_success(db, job, now, rows, messages, result):
     )
     cfg = _job_config(job)
     cfg["retry_count"] = 0
-    next_run = compute_following_next_run(job.schedule_type, job.cron_value, job.interval_minutes, last_base=now)
+    next_run = compute_following_next_run(job, base=now)
     update_item(
         db,
         job,
@@ -83,6 +83,7 @@ def _finalize_failure(db, job, now, rows, messages, exc):
     _safe_create_log(
         db,
         schedule_job_id=job.id,
+        run_at=now,
         status="failed",
         rows_returned=len(rows) if rows else 0,
         sent_count=len(messages) if messages else 0,
@@ -94,7 +95,7 @@ def _finalize_failure(db, job, now, rows, messages, exc):
         update_item(db, job, last_run_at=now, next_run_at=next_run, payload_json=json.dumps(cfg, ensure_ascii=False))
     else:
         cfg["retry_count"] = 0
-        next_run = compute_following_next_run(job.schedule_type, job.cron_value, job.interval_minutes, last_base=now) if job.schedule_type != "once" else None
+        next_run = compute_following_next_run(job, base=now) if job.schedule_type != "once" else None
         update_item(
             db,
             job,
@@ -110,7 +111,7 @@ def execute_job(db, job):
     messages = []
     try:
         rows, messages = _build_messages(db, job)
-        result = _send_messages_sync(messages)
+        result = _send_messages_sync(db, job, messages)
         _finalize_success(db, job, now, rows, messages, result)
         return {"status": "success", "rows": len(rows), "sent": len(messages)}
     except Exception as exc:
