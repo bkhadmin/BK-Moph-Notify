@@ -453,8 +453,8 @@ def profiles_export(request:Request, q:str='', format:str='csv', db:Session=Depe
 def access_logs_page(request:Request, q:str='', page:int=1, per_page:int=20, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'logs')
-    access_rows = [{"actor": x.actor, "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
-    send_rows = [{"id": x.id, "actor": x.actor, "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
+    access_rows = [{"actor": x.session.get('username'), "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
+    send_rows = [{"id": x.id, "actor": x.session.get('username'), "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
     delivery_rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
     access_rows = _filter_rows(access_rows, q)
     send_rows = _filter_rows(send_rows, q)
@@ -469,9 +469,9 @@ def logs_export(kind:str, request:Request, q:str='', format:str='csv', db:Sessio
     session=require_session(request)
     require_menu(db, session, 'logs')
     if kind == 'access':
-        rows = [{"actor": x.actor, "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
+        rows = [{"actor": x.session.get('username'), "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
     elif kind == 'send':
-        rows = [{"id": x.id, "actor": x.actor, "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
+        rows = [{"id": x.id, "actor": x.session.get('username'), "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
     else:
         rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
     rows = _filter_rows(rows, q)
@@ -1000,6 +1000,7 @@ def schedules_create(
     interval_minutes:str=Form(''),
     approved_query_id:int|None=Form(None),
     message_template_id:int|None=Form(None),
+    notify_room_id:int|None=Form(None),
     is_active:str=Form('Y'),
     retry_limit:str=Form('3'),
     db:Session=Depends(get_db)
@@ -1026,6 +1027,7 @@ def schedules_create(
                 interval_minutes=normalized_interval,
                 approved_query_id=approved_query_id,
                 message_template_id=message_template_id,
+                notify_room_id=notify_room_id,
                 next_run_at=next_run_at,
                 is_active=is_active,
                 payload_json=payload_json,
@@ -1039,6 +1041,7 @@ def schedules_create(
                 interval_minutes=normalized_interval,
                 approved_query_id=approved_query_id,
                 message_template_id=message_template_id,
+                notify_room_id=notify_room_id,
                 next_run_at=next_run_at,
                 is_active=is_active,
                 payload_json=payload_json,
