@@ -984,10 +984,11 @@ def schedules_page(request:Request, db:Session=Depends(get_db)):
             'interval_minutes': str(edit_job.interval_minutes or ''),
             'approved_query_id': edit_job.approved_query_id or '',
             'message_template_id': edit_job.message_template_id or '',
+            'notify_room_id': getattr(edit_job, 'notify_room_id', '') or '',
             'is_active': edit_job.is_active,
             'retry_limit': str(cfg.get('retry_limit', 3)),
         }
-    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db), form_error=None, form_values=form_values))
+    return templates.TemplateResponse('admin/schedules.html', ctx(request, db, session, jobs=get_jobs(db), approved_queries=get_queries(db), message_templates=get_templates(db), notify_rooms=get_active_notify_rooms(db), form_error=None, form_values=form_values))
 
 
 @router.post('/schedules')
@@ -1057,6 +1058,7 @@ def schedules_create(
                 jobs=get_jobs(db),
                 approved_queries=get_queries(db),
                 message_templates=get_templates(db),
+                notify_rooms=get_active_notify_rooms(db),
                 form_error=str(exc),
                 form_values={
                     'id': schedule_id,
@@ -1066,6 +1068,7 @@ def schedules_create(
                     'interval_minutes': str(interval_minutes or '').strip(),
                     'approved_query_id': approved_query_id or '',
                     'message_template_id': message_template_id or '',
+                    'notify_room_id': notify_room_id or '',
                     'is_active': is_active,
                     'retry_limit': retry_limit,
                 }
@@ -1208,6 +1211,8 @@ def claim_notify_settings_page(request:Request, db:Session=Depends(get_db)):
     return templates.TemplateResponse('admin/claim_notify_settings.html', ctx(
         request, db, session,
         claim_notify_enabled=(os.getenv('CLAIM_NOTIFY_ENABLED', 'Y') or 'Y'),
+        notify_rooms=get_notify_rooms(db),
+        active_notify_rooms=get_active_notify_rooms(db),
     ))
 
 @router.get('/alerts/cases')

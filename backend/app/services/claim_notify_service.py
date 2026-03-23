@@ -1,3 +1,4 @@
+import asyncio
 from app.services.timezone_utils import format_bangkok
 from app.services.send_pipeline import send_with_log
 
@@ -19,9 +20,11 @@ def build_claim_notification_payload(case):
 
 def notify_case_claimed(db, username, case):
     payload = build_claim_notification_payload(case)
-    return send_with_log(
-        db,
-        username or "system",
-        payload,
-        f"claim_case case_key={case.case_key} claimed_by={case.claimed_by or '-'}"
+    return asyncio.run(
+        send_with_log(
+            db,
+            username or "system",
+            payload,
+            f"claim_case case_key={case.case_key} claimed_by={case.claimed_by or '-'}",
+        )
     )
