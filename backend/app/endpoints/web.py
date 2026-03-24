@@ -454,7 +454,13 @@ def profiles_export(request:Request, q:str='', format:str='csv', db:Session=Depe
 def access_logs_page(request:Request, q:str='', page:int=1, per_page:int=20, db:Session=Depends(get_db)):
     session=require_session(request)
     require_menu(db, session, 'logs')
-    access_rows = [{"session.get('username')": x.session.get('username'), "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
+    access_rows = [{
+        "username": getattr(x, "username", None) or getattr(x, "actor", None) or "-",
+        "ip_address": getattr(x, "ip_address", None) or "-",
+        "action": getattr(x, "action", None) or "-",
+        "status": getattr(x, "status", None) or "-",
+        "detail": getattr(x, "detail", None) or "-",
+    } for x in get_access_logs(db)]
     send_rows = [{"id": x.id, "session.get('username')": x.session.get('username'), "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
     delivery_rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
     access_rows = _filter_rows(access_rows, q)
