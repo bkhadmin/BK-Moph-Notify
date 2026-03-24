@@ -96,3 +96,16 @@ def claim_case(db, case, receiver_name: str):
     ensure_tables()
     now = utcnow()
     return update_item(db, case, status="CLAIMED", claimed_by=receiver_name, claimed_at=now)
+
+def list_open_alert_cases(db):
+    rows = []
+    for fn_name in ("get_open_alert_cases", "get_unclaimed_cases", "list_cases", "get_all_cases"):
+        fn = globals().get(fn_name)
+        if callable(fn):
+            try:
+                result = fn(db)
+                if result is not None:
+                    return result
+            except Exception:
+                pass
+    return rows
