@@ -461,7 +461,14 @@ def access_logs_page(request:Request, q:str='', page:int=1, per_page:int=20, db:
         "status": getattr(x, "status", None) or "-",
         "detail": getattr(x, "detail", None) or "-",
     } for x in get_access_logs(db)]
-    send_rows = [{"id": x.id, "session.get('username')": x.session.get('username'), "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
+    send_rows = [{
+        "id": getattr(x, "id", None),
+        "username": getattr(x, "actor", None) or getattr(x, "username", None) or "-",
+        "channel": getattr(x, "channel", None) or "-",
+        "status": getattr(x, "status", None) or "-",
+        "retry_count": getattr(x, "retry_count", None) or 0,
+        "detail": getattr(x, "detail", None) or "-",
+    } for x in get_send_logs(db)]
     delivery_rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
     access_rows = _filter_rows(access_rows, q)
     send_rows = _filter_rows(send_rows, q)
@@ -476,9 +483,9 @@ def logs_export(kind:str, request:Request, q:str='', format:str='csv', db:Sessio
     session=require_session(request)
     require_menu(db, session, 'logs')
     if kind == 'access':
-        rows = [{"session.get('username')": x.session.get('username'), "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
+        rows = [{"username": getattr(x, 'actor', None) or getattr(x, 'username', None) or '-', "ip_address": x.ip_address, "action": x.action, "status": x.status, "detail": x.detail} for x in get_access_logs(db)]
     elif kind == 'send':
-        rows = [{"id": x.id, "session.get('username')": x.session.get('username'), "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
+        rows = [{"id": x.id, "username": getattr(x, 'actor', None) or getattr(x, 'username', None) or '-', "channel": x.channel, "status": x.status, "retry_count": x.retry_count, "detail": x.detail} for x in get_send_logs(db)]
     else:
         rows = [{"send_log_id": x.send_log_id, "external_message_id": x.external_message_id, "status": x.status, "provider_status": x.provider_status, "detail": x.detail} for x in get_delivery_statuses(db)]
     rows = _filter_rows(rows, q)
