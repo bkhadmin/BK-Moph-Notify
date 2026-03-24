@@ -15,6 +15,7 @@ from app.services.dynamic_template_renderer import build_dynamic_template_payloa
 from app.services.scheduler_service import compute_following_next_run, scheduler_now
 from app.services.template_render import build_message_payload
 from app.services.send_pipeline import send_with_log
+from app.services.flex_payload_sanitizer import sanitize_messages
 
 POLL_SECONDS = 30
 
@@ -41,6 +42,7 @@ def _build_messages(db, job):
         messages = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
     else:
         messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows[:10]]
+    messages = sanitize_messages(messages)
     return rows, messages
 
 def _safe_create_log(db, **kwargs):
@@ -113,6 +115,34 @@ def execute_job(db, job):
     messages = []
     try:
         rows, messages = _build_messages(db, job)
+
+        if not rows or not messages:
+            _safe_create_log(
+                db,
+                schedule_job_id=job.id,
+                run_at=now,
+                status="no_data",
+                rows_returned=len(rows) if rows else 0,
+                sent_count=0,
+                detail_json=json.dumps({
+                    "message": "no rows returned; skip send",
+                    "notify_room_id": getattr(job, "notify_room_id", None),
+                }, ensure_ascii=False),
+            )
+            cfg = _job_config(job)
+            cfg["retry_count"] = 0
+            next_run = compute_following_next_run(job, base=now)
+            update_item(
+                db,
+                job,
+                last_run_at=now,
+                next_run_at=next_run,
+                is_active="N" if job.schedule_type == "once" else job.is_active,
+                payload_json=json.dumps(cfg, ensure_ascii=False),
+            )
+            print(f"[scheduler] no_data job_id={job.id} next_run_at={next_run} room_id={getattr(job, 'notify_room_id', None)}")
+            return {"status": "no_data", "rows": len(rows) if rows else 0, "sent": 0}
+
         result, send_log_id = asyncio.run(
             send_with_log(
                 db,
