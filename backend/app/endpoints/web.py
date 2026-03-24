@@ -1,3 +1,4 @@
+from app.services.alert_case_service import list_open_alert_cases
 
 
 def _fmt_dt(dt):
@@ -40,7 +41,7 @@ def _alert_case_report_rows(cases):
             'claimed_at': _fmt_dt(c.claimed_at),
             'minutes_to_claim': receive_minutes if receive_minutes is not None else '',
             'sent_count': c.sent_count or 0,
-            'created_at': _fmt_dt(c.created_at),
+            'id': _fmt_dt(c.id),
             'claim_notify_sent_at': _fmt_dt(getattr(c, 'claim_notify_sent_at', None)),
             'claim_notify_status': getattr(c, 'claim_notify_status', '') or '',
         })
@@ -1440,3 +1441,17 @@ def logout(request:Request, db:Session=Depends(get_db)):
     response.delete_cookie(settings.session_cookie_name, path='/')
     response.delete_cookie(settings.csrf_cookie_name, path='/')
     return response
+
+
+@router.get('/alerts/manual-claim')
+def manual_claim_page(request:Request, db:Session=Depends(get_db)):
+    session = require_session(request)
+    require_menu(db, session, 'notify')
+    try:
+        cases = list_open_alert_cases(db)
+    except Exception:
+        cases = []
+    return templates.TemplateResponse(
+        'admin/manual_claim.html',
+        ctx(request, db, session, alert_cases=cases)
+    )

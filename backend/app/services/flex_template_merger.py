@@ -1,3 +1,4 @@
+from app.services.claim_url_builder import build_claim_url
 import json
 from datetime import datetime
 from app.utils.thai_datetime import bangkok_now, format_thai_datetime
@@ -55,3 +56,28 @@ def build_flex_payload_from_template_rows(content_text:str, alt_text:str|None, r
         "altText": alt_text or "BK-Moph Notify Flex Message",
         "contents": contents
     }]
+
+
+def fill_missing_claim_urls(payload, row=None):
+    try:
+        claim_url = None
+        if isinstance(row, dict):
+            claim_url = row.get("claim_url")
+            if not claim_url and row.get("case_key"):
+                claim_url = build_claim_url(row.get("case_key"))
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get("type") == "button":
+                    action = node.get("action")
+                    if isinstance(action, dict) and action.get("type") == "uri":
+                        if not (action.get("uri") or "").strip() and claim_url:
+                            action["uri"] = claim_url
+                for v in node.values():
+                    walk(v)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+        walk(payload)
+    except Exception:
+        pass
+    return fill_missing_claim_urls(payload, row) if 'row' in locals() else payload
