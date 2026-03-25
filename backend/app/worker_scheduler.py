@@ -16,7 +16,7 @@ from app.services.dynamic_template_renderer import build_dynamic_template_payloa
 from app.services.scheduler_service import compute_following_next_run, scheduler_now
 from app.services.template_render import build_message_payload
 from app.services.send_pipeline import send_with_log
-from app.services.alert_case_service import enrich_alert_rows
+from app.services.alert_case_service import enrich_alert_rows, mark_alert_case_sent
 from app.services.flex_payload_sanitizer import sanitize_messages
 
 POLL_SECONDS = 30
@@ -178,8 +178,19 @@ def execute_job(db, job):
         )
         result = dict(result or {})
         result["send_log_id"] = send_log_id
+
+        updated_cases = 0
+        for row in rows or []:
+            try:
+                case_key = row.get("case_key") if isinstance(row, dict) else getattr(row, "case_key", None)
+                if case_key and mark_alert_case_sent(db, case_key):
+                    updated_cases += 1
+            except Exception:
+                pass
+        result["updated_cases"] = updated_cases
+
         _finalize_success(db, job, now, rows, messages, result)
-        return {"status": "success", "rows": len(rows), "sent": len(messages), "send_log_id": send_log_id}
+        return {"status": "success", "rows": len(rows), "sent": len(messages), "send_log_id": send_log_id, "updated_cases": updated_cases}
     except Exception as exc:
         _finalize_failure(db, job, now, rows, messages, exc)
         return {"status": "failed", "error": str(exc), "rows": len(rows), "sent": len(messages)}
