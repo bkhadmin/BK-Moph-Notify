@@ -109,3 +109,25 @@ def list_open_alert_cases(db):
             except Exception:
                 pass
     return rows
+
+
+from datetime import datetime
+
+def mark_alert_case_sent(db, case_key):
+    try:
+        from sqlalchemy import text
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        db.execute(text("""
+            UPDATE alert_cases
+            SET
+                first_sent_at = COALESCE(first_sent_at, :now),
+                last_sent_at = :now,
+                sent_count = COALESCE(sent_count, 0) + 1,
+                updated_at = :now
+            WHERE case_key = :case_key
+        """), {"now": now, "case_key": case_key})
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        return False

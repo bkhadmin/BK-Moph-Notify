@@ -36,7 +36,7 @@ def _alert_case_report_rows(cases):
             'item_value': c.item_value or '',
             'report_date': c.report_date_text or '',
             'report_time': c.report_time_text or '',
-            'message_sent_at': _fmt_dt(sent_at),
+            'last_sent_at': _fmt_dt(sent_at),
             'claimed_by': c.claimed_by or '',
             'claimed_at': _fmt_dt(c.claimed_at),
             'minutes_to_claim': receive_minutes if receive_minutes is not None else '',
@@ -51,7 +51,7 @@ def _alert_case_dashboard(rows):
     total = len(rows)
     claimed = len([r for r in rows if r.get('status') == 'CLAIMED'])
     pending = len([r for r in rows if r.get('status') != 'CLAIMED'])
-    with_sent = [r for r in rows if r.get('message_sent_at')]
+    with_sent = [r for r in rows if r.get('last_sent_at')]
     with_claim_minutes = [float(r['minutes_to_claim']) for r in rows if str(r.get('minutes_to_claim')).strip() not in ('', 'None')]
     avg_claim_minutes = round(sum(with_claim_minutes) / len(with_claim_minutes), 2) if with_claim_minutes else 0
     claimed_today = len([r for r in rows if r.get('claimed_at') and r['claimed_at'][:10] == today_bangkok_str()])
