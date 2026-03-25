@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 import time
@@ -15,6 +16,7 @@ from app.services.dynamic_template_renderer import build_dynamic_template_payloa
 from app.services.scheduler_service import compute_following_next_run, scheduler_now
 from app.services.template_render import build_message_payload
 from app.services.send_pipeline import send_with_log
+from app.services.alert_case_service import enrich_alert_rows
 from app.services.flex_payload_sanitizer import sanitize_messages
 
 POLL_SECONDS = 30
@@ -33,17 +35,39 @@ def _build_messages(db, job):
     t = get_template(db, job.message_template_id) if job.message_template_id else None
     if not q or not t:
         raise ValueError("approved query หรือ message template ไม่พบ")
+
     data = preview_query(q.sql_text, max_rows=q.max_rows)
     rows = data.get("rows") or []
-    dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, rows)
+
+    # enrich lab alert rows with case_key / claim_url / claim status, then skip already-claimed cases
+    try:
+        enriched_rows = enrich_alert_rows(db, rows, os.getenv("APP_BASE_URL") or os.getenv("PUBLIC_BASE_URL") or "http://192.168.191.12:8012")
+    except Exception:
+        enriched_rows = rows
+
+    filtered_rows = []
+    for row in enriched_rows or []:
+        item = dict(row)
+        status = str(item.get("case_status") or "").upper().strip()
+        claimed_by = str(item.get("claimed_by") or "").strip()
+        if status == "CLAIMED" or claimed_by:
+            continue
+        item["case_status_text"] = "รอรับเคส"
+        filtered_rows.append(item)
+
+    if not filtered_rows:
+        return [], []
+
+    dynamic_payload = build_dynamic_template_payload(t.template_type, t.content, t.alt_text, filtered_rows)
     if dynamic_payload is not None:
         messages = dynamic_payload
     elif t.template_type == "flex":
-        messages = build_flex_payload_from_template_rows(t.content, t.alt_text, rows)
+        messages = build_flex_payload_from_template_rows(t.content, t.alt_text, filtered_rows)
     else:
-        messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in rows[:10]]
+        messages = [build_message_payload(t.template_type, t.content, t.alt_text, row) for row in filtered_rows[:10]]
+
     messages = sanitize_messages(messages)
-    return rows, messages
+    return filtered_rows, messages
 
 def _safe_create_log(db, **kwargs):
     try:
