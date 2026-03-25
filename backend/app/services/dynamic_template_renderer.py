@@ -69,4 +69,4 @@ def fill_missing_claim_urls(payload, row=None):
         walk(payload)
     except Exception:
         pass
-    return fill_missing_claim_urls(payload, row) if 'row' in locals() else payload
+    return payload

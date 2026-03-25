@@ -39,13 +39,13 @@ def build_flex_payload_from_template_rows(content_text:str, alt_text:str|None, r
         rows = [{}]
     template_type = parsed.get("type")
     if template_type == "bubble":
-        bubbles = [_replace(parsed, _mapping_for_row(row)) for row in rows[:12]]
+        bubbles = [fill_missing_claim_urls(_replace(parsed, _mapping_for_row(row)), row) for row in rows[:12]]
         contents = bubbles[0] if len(bubbles) == 1 else {"type":"carousel","contents":bubbles}
     elif template_type == "carousel":
         prototype_bubbles = parsed.get("contents") or []
         if len(prototype_bubbles) == 1:
             proto = prototype_bubbles[0]
-            bubbles = [_replace(proto, _mapping_for_row(row)) for row in rows[:12]]
+            bubbles = [fill_missing_claim_urls(_replace(proto, _mapping_for_row(row)), row) for row in rows[:12]]
             contents = {"type":"carousel","contents":bubbles}
         else:
             contents = _replace(parsed, _mapping_for_row(rows[0]))
@@ -80,4 +80,4 @@ def fill_missing_claim_urls(payload, row=None):
         walk(payload)
     except Exception:
         pass
-    return fill_missing_claim_urls(payload, row) if 'row' in locals() else payload
+    return payload

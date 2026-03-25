@@ -13,7 +13,7 @@ def build_message_payload(template_type:str, content:str, alt_text:str|None, var
     if template_type == 'flex':
         raw = render_text_template(content, variables)
         contents = json.loads(raw)
-        return {"type":"flex","altText": alt_text or "BK-Moph Notify", "contents": contents}
+        return fill_missing_claim_urls({"type":"flex","altText": alt_text or "BK-Moph Notify", "contents": contents}, variables if isinstance(variables, dict) else None)
     if template_type == 'image':
         rendered_url = render_text_template(content, variables)
         return {"type":"image","originalContentUrl": rendered_url, "previewImageUrl": rendered_url}
@@ -42,4 +42,4 @@ def fill_missing_claim_urls(payload, row=None):
         walk(payload)
     except Exception:
         pass
-    return fill_missing_claim_urls(payload, row) if 'row' in locals() else payload
+    return payload
