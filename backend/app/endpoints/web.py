@@ -1,3 +1,4 @@
+from app.services.timezone_write import bangkok_now_naive
 from app.services.alert_case_service import list_open_alert_cases
 
 
@@ -1255,7 +1256,7 @@ def alert_cases_export_csv(request:Request, status_filter:str='', db:Session=Dep
         cases = [x for x in cases if (x.status or '') == status_filter]
     rows = _alert_case_report_rows(cases)
     content = to_csv_bytes(rows)
-    filename = f"alert_cases_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"alert_cases_{bangkok_now_naive().strftime('%Y%m%d_%H%M%S')}.csv"
     headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
     return Response(content=content, media_type='text/csv; charset=utf-8', headers=headers)
 
@@ -1268,7 +1269,7 @@ def alert_cases_export_xlsx(request:Request, status_filter:str='', db:Session=De
         cases = [x for x in cases if (x.status or '') == status_filter]
     rows = _alert_case_report_rows(cases)
     content = to_xlsx_bytes(rows, sheet_name='alert_cases')
-    filename = f"alert_cases_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"alert_cases_{bangkok_now_naive().strftime('%Y%m%d_%H%M%S')}.xlsx"
     headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
     return Response(content=content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 

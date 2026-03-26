@@ -1,3 +1,4 @@
+from app.services.timezone_write import bangkok_now_str, bangkok_now_naive
 import hashlib
 import json
 from datetime import datetime
@@ -116,7 +117,7 @@ from datetime import datetime
 def mark_alert_case_sent(db, case_key):
     try:
         from sqlalchemy import text
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = bangkok_now_str()
         db.execute(text("""
             UPDATE alert_cases
             SET
