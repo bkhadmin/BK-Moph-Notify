@@ -16,7 +16,7 @@ from app.services.dynamic_template_renderer import build_dynamic_template_payloa
 from app.services.scheduler_service import compute_following_next_run, scheduler_now
 from app.services.template_render import build_message_payload
 from app.services.send_pipeline import send_with_log
-from app.services.alert_case_service import enrich_alert_rows, mark_alert_case_sent
+from app.services.alert_case_service import enrich_alert_rows, mark_alert_case_sent, normalize_alert_row_identity
 from app.services.flex_payload_sanitizer import sanitize_messages
 
 POLL_SECONDS = 30
@@ -42,6 +42,7 @@ def _build_messages(db, job):
     # enrich lab alert rows with case_key / claim_url / claim status, then skip already-claimed cases
     try:
         enriched_rows = enrich_alert_rows(db, rows, os.getenv("APP_BASE_URL") or os.getenv("PUBLIC_BASE_URL") or "http://192.168.191.12:8012")
+        enriched_rows = [normalize_alert_row_identity(x) for x in (enriched_rows or [])]
     except Exception:
         enriched_rows = rows
 
@@ -183,7 +184,8 @@ def execute_job(db, job):
         for row in rows or []:
             try:
                 case_key = row.get("case_key") if isinstance(row, dict) else getattr(row, "case_key", None)
-                if case_key and mark_alert_case_sent(db, case_key):
+                lab_order_number = row.get("lab_order_number") if isinstance(row, dict) else getattr(row, "lab_order_number", None)
+                if mark_alert_case_sent(db, case_key=case_key, lab_order_number=lab_order_number):
                     updated_cases += 1
             except Exception:
                 pass
