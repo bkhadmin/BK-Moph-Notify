@@ -114,21 +114,48 @@ def list_open_alert_cases(db):
 
 from datetime import datetime
 
-def mark_alert_case_sent(db, case_key):
+
+
+def mark_alert_case_sent(db, case_key=None, lab_order_number=None):
     try:
         from sqlalchemy import text
         now = bangkok_now_str()
-        db.execute(text("""
-            UPDATE alert_cases
-            SET
-                first_sent_at = COALESCE(first_sent_at, :now),
-                last_sent_at = :now,
-                sent_count = COALESCE(sent_count, 0) + 1,
-                updated_at = :now
-            WHERE case_key = :case_key
-        """), {"now": now, "case_key": case_key})
+        if lab_order_number:
+            db.execute(text("""
+                UPDATE alert_cases
+                SET
+                    first_sent_at = COALESCE(first_sent_at, :now),
+                    last_sent_at = :now,
+                    sent_count = COALESCE(sent_count, 0) + 1,
+                    updated_at = :now
+                WHERE lab_order_number = :lab_order_number
+            """), {"now": now, "lab_order_number": str(lab_order_number)})
+        elif case_key:
+            db.execute(text("""
+                UPDATE alert_cases
+                SET
+                    first_sent_at = COALESCE(first_sent_at, :now),
+                    last_sent_at = :now,
+                    sent_count = COALESCE(sent_count, 0) + 1,
+                    updated_at = :now
+                WHERE case_key = :case_key
+            """), {"now": now, "case_key": case_key})
+        else:
+            return False
         db.commit()
         return True
     except Exception:
         db.rollback()
         return False
+
+def normalize_alert_row_identity(row):
+    item = dict(row or {})
+    lab_order_number = (
+        item.get("lab_order_number")
+        or item.get("order_number")
+        or item.get("lab_order_no")
+        or item.get("r.lab_order_number")
+    )
+    if lab_order_number is not None:
+        item["lab_order_number"] = str(lab_order_number)
+    return item
